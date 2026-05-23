@@ -1,65 +1,72 @@
-import Image from "next/image";
+export const dynamic = 'force-dynamic';
 
-export default function Home() {
+import { Alert } from '@/components/ui/Alert';
+import { DashboardView } from '@/components/DashboardView';
+import { DangerZone } from '@/components/DangerZone';
+import {
+  getPortfolioSummaryForUser,
+  formatMonthLabel,
+} from '@/lib/portfolio-data';
+import { requirePortfolioData } from '@/lib/redirects';
+
+export default async function Dashboard() {
+  const userId = await requirePortfolioData();
+  const summary = await getPortfolioSummaryForUser(userId);
+  const errors = summary.doctorWarnings.filter((w) => w.level === 'error');
+  const warns = summary.doctorWarnings.filter((w) => w.level === 'warn');
+
+  const chartPerformance = summary.performanceChartData.map((p) => ({
+    date: formatMonthLabel(p.date),
+    value: p.value,
+    invested: p.invested,
+    nifty50: p.nifty50,
+    nifty500: p.nifty500,
+    midcap150: p.midcap150,
+    smallcap250: p.smallcap250,
+  }));
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="space-y-8">
+      {(errors.length > 0 || warns.length > 0) && (
+        <Alert tone={errors.length > 0 ? 'error' : 'warning'} title="Data quality">
+          <ul className="mt-2 list-inside list-disc space-y-1">
+            {errors.slice(0, 4).map((w, i) => (
+              <li key={`e-${i}`}>
+                {w.symbol ? <strong>{w.symbol}: </strong> : null}
+                {w.message}
+              </li>
+            ))}
+            {warns.slice(0, 6).map((w, i) => (
+              <li key={`w-${i}`}>
+                {w.symbol ? <strong>{w.symbol}: </strong> : null}
+                {w.message}
+              </li>
+            ))}
+          </ul>
+          {summary.doctorWarnings.length > 10 && (
+            <p className="mt-2 text-xs opacity-80">
+              +{summary.doctorWarnings.length - 10} more — review on Holdings
+            </p>
+          )}
+        </Alert>
+      )}
+
+      <DashboardView
+        initial={{
+          holdings: summary.holdings,
+          totalValue: summary.totalValue,
+          totalInvested: summary.totalInvested,
+          totalProfit: summary.totalProfit,
+          profitPercentage: summary.profitPercentage,
+          allocationData: summary.allocationData,
+          performanceData: chartPerformance,
+          xirr: summary.xirr,
+          ltpFetchedAt: summary.ltpFetchedAt,
+          ltpFailedSymbols: summary.ltpFailedSymbols,
+        }}
+      />
+
+      <DangerZone />
     </div>
   );
 }

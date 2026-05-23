@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/** NSE corporate actions cache (shared across users). */
+model CorporateAction {
+  id              String   @id @default(uuid())
+  symbol          String
+  exDate          DateTime
+  actionType      String
+  subject         String
+  ratioNum        Float?
+  ratioDen        Float?
+  shareMultiplier Float?
+  source          String   @default("NSE")
+  fetchedAt       DateTime @default(now())
+
+  @@unique([symbol, actionType, subject])
+  @@index([symbol, exDate])
+}
+
+model User {
+  id                String        @id @default(uuid())
+  email             String        @unique
+  passwordHash      String
+  name              String?
+  /** JSON: Zerodha holdings export for qty reconciliation */
+  holdingsSnapshot  String?
+  /** JSON: { fetchedAt, prices: { SYMBOL: ltp }, failed?: string[] } from NSE/Yahoo */
+  ltpSnapshot       String?
+  assets            Asset[]
+  transactions Transaction[]
+  importFiles  ImportFile[]
+  createdAt    DateTime      @default(now())
+}
+
+model ImportFile {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName  String
+  imported  Int
+  skipped   Int
+  createdAt DateTime @default(now())
+}
+
+model Asset {
+  id            String        @id @default(uuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  canonicalKey  String
+  symbol        String
+  isin          String?
+  symbolAliases String        @default("[]")
+  name          String
+  price         Float         @default(0.0)
+  transactions  Transaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([userId, canonicalKey])
+}
+
+model Transaction {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetId            String
+  asset              Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  type               String   // BUY, SELL, BONUS, SPLIT
+  quantity           Float
+  price              Float
+  splitRatio         Float?   // For SPLIT: new_qty / old_qty (e.g. 2 for 1:2)
+  date               DateTime
+  exchange           String?
+  segment            String?
+  series             String?
+  auction            Boolean  @default(false)
+  tradeId            String?
+  orderId            String?
+  orderExecutionTime DateTime?
+  createdAt          DateTime @default(now())
+
+  @@unique([userId, tradeId])
+}
