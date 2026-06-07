@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Portfolio Tracker
 
-## Getting Started
+A comprehensive, private-by-design portfolio tracking application built with **Next.js**, **Prisma**, and **SQLite**. This app allows you to upload your broker's tradebook CSV files to track your stocks, mutual funds, and US stocks with extreme accuracy, including historical corporate actions and cash flows.
 
-First, run the development server:
+## ✨ Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Multi-Asset Tracking**: Separate dashboards for Overall Portfolio, Indian Stocks, Mutual Funds, and US Stocks.
+- **Accurate FIFO Cost Basis**: Replays your entire trading history chronologically to calculate the exact FIFO cost basis of your current holdings.
+- **Intelligent Corporate Actions Engine**: 
+  - Automatically fetches historical announcements from the **NSE API**.
+  - Adjusts your holdings for **Stock Splits** and **Bonus Issues**.
+  - Parses text announcements to extract exact cash **Dividends** and calculates total passive income earned per stock.
+- **XIRR & Performance Tracking**: 
+  - Calculates annualized returns (XIRR) based on exact cash inflows and outflows.
+  - Compares your portfolio's performance against major indices (e.g., Nifty 50, Nifty 500) using historical data from **Yahoo Finance**.
+- **Cash Flow Analytics**: Visualizes your monthly invested capital vs. withdrawn capital using interactive charts.
+- **Live Pricing**: Fetches real-time LTP (Last Traded Price) from Yahoo Finance for up-to-date portfolio valuations.
+- **Privacy First**: All data is stored locally in a SQLite database (`prisma/dev.db`). No financial data is sent to third-party tracking servers.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🚀 Getting Started
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Prerequisites
+- Node.js (v18 or higher)
+- npm or yarn
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Installation
 
-## Learn More
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/nitinkundu125/startup.git
+   cd startup
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. **Set up the database:**
+   The project uses Prisma with a local SQLite database. Push the schema to create the database:
+   ```bash
+   npx prisma db push
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
 
-## Deploy on Vercel
+5. **Open the app:**
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 📊 How to Use
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Navigate to the **Dashboard**.
+2. Click **Import data** to upload your tradebook CSV.
+3. The app will process your trades, automatically apply historical corporate actions (splits, bonuses, dividends), and calculate your exact holdings and cost basis.
+4. Use the **Overall**, **Stocks**, **Mutual Funds**, and **US Stocks** tabs to view specific allocations, XIRR, and performance charts.
+5. Click the **Refresh** button on the dashboard at any time to pull the latest live prices from Yahoo Finance.
+
+## 🛠 Tech Stack
+
+- **Framework**: Next.js (App Router)
+- **Database**: SQLite
+- **ORM**: Prisma
+- **Styling**: Tailwind CSS
+- **Icons**: Lucide React
+- **Data Sources**: NSE India API, Yahoo Finance API
+
+## 📝 License
+
+This project is licensed under the MIT License.
