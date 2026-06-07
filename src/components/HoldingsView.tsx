@@ -10,10 +10,10 @@ import { RefreshLtpButton } from '@/components/RefreshLtpButton';
 import { UploadForm } from '@/components/UploadForm';
 import type { PortfolioSummary } from '@/lib/portfolio';
 
-function applyLtpToRows(
-  rows: HoldingRow[],
+function applyLtpToRows<T extends { symbol: string; currentPrice: number }>(
+  rows: T[],
   prices: Record<string, number>
-): HoldingRow[] {
+): T[] {
   const map = new Map(
     Object.entries(prices).map(([k, v]) => [k.toUpperCase(), v])
   );

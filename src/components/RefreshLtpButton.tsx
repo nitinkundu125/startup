@@ -10,6 +10,7 @@ export type LtpRefreshResult = {
   prices: Record<string, number>;
   failed: string[];
   updated: number;
+  usdInr?: number;
 };
 
 type LtpResponse = {
@@ -20,6 +21,7 @@ type LtpResponse = {
   failed?: string[];
   error?: string;
   sessionExpired?: boolean;
+  usdInr?: number;
 };
 
 export function RefreshLtpButton({
@@ -60,6 +62,7 @@ export function RefreshLtpButton({
         prices: data.prices,
         failed: data.failed ?? [],
         updated: data.updated ?? Object.keys(data.prices).length,
+        usdInr: data.usdInr,
       };
 
       onSuccess?.(result);

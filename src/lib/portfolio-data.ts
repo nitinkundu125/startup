@@ -185,6 +185,8 @@ export async function getPortfolioSummaryForUser(
           totalInvested: b.quantity * b.avgCost,
           unrealizedPnl: 0,
           brokerAdjusted: true,
+          dividends: 0,
+          assetClass: 'STOCK',
         });
       }
     }
