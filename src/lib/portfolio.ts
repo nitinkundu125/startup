@@ -167,9 +167,14 @@ function snapshotFromPositions(
 }
 
 export function buildPortfolioSummary(transactions: TxInput[]): PortfolioSummary {
-  const sorted = [...transactions].sort(
-    (a, b) => a.date.getTime() - b.date.getTime()
-  );
+  const sorted = [...transactions].sort((a, b) => {
+    const t = a.date.getTime() - b.date.getTime();
+    if (t !== 0) return t;
+    const order: Record<string, number> = { DIVIDEND: 0, SPLIT: 1, BONUS: 2, DEMAT: 3, CA_BUY: 3, SELL: 4, BUY: 5 };
+    const oa = order[a.type.toUpperCase()] ?? 99;
+    const ob = order[b.type.toUpperCase()] ?? 99;
+    return oa - ob;
+  });
 
   const positions = new Map<string, FifoPosition>();
   const meta = new Map<string, AssetMeta>();
