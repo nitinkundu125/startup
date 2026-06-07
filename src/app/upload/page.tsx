@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { BarChart3, ArrowRight } from 'lucide-react';
 import { UploadForm } from '@/components/UploadForm';
+import { AccountAggregatorFlow } from '@/components/AccountAggregatorFlow';
 import { DangerZone } from '@/components/DangerZone';
 import { requireAuth } from '@/lib/redirects';
 import { userHasPortfolioData } from '@/lib/auth';
@@ -44,6 +45,8 @@ export default async function UploadPage() {
           }
         />
       )}
+
+      <AccountAggregatorFlow />
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 lg:items-start">
         <UploadForm hasExistingData={hasData} importType="STOCK" />

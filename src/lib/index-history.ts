@@ -1,4 +1,11 @@
-export type DailyClose = { date: Date; close: number };
+export type DailyClose = {
+  date: Date;
+  close: number;
+  high?: number;
+  low?: number;
+  open?: number;
+  volume?: number;
+};
 
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 
@@ -45,18 +52,24 @@ export async function fetchYahooDailyCloses(
     `${YAHOO_CHART}${encodeURIComponent(yahooSymbol)}` +
     `?interval=1d&period1=${period1}&period2=${period2}`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PortfolioApp/1.0)' },
       next: { revalidate: 3600 },
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
+    
     if (!res.ok) return [];
 
     const json = (await res.json()) as {
       chart?: {
         result?: {
           timestamp?: number[];
-          indicators?: { quote?: { close?: (number | null)[] }[] };
+          indicators?: { quote?: { close?: (number | null)[]; high?: (number | null)[]; low?: (number | null)[]; open?: (number | null)[]; volume?: (number | null)[] }[] };
         }[];
       };
     };
@@ -64,12 +77,24 @@ export async function fetchYahooDailyCloses(
     const result = json.chart?.result?.[0];
     const timestamps = result?.timestamp ?? [];
     const closes = result?.indicators?.quote?.[0]?.close ?? [];
+    const highs = result?.indicators?.quote?.[0]?.high ?? [];
+    const lows = result?.indicators?.quote?.[0]?.low ?? [];
+    const opens = result?.indicators?.quote?.[0]?.open ?? [];
+    const volumes = result?.indicators?.quote?.[0]?.volume ?? [];
 
     const out: DailyClose[] = [];
     for (let i = 0; i < timestamps.length; i++) {
       const c = closes[i];
       if (c == null || !Number.isFinite(c) || c <= 0) continue;
-      out.push({ date: new Date(timestamps[i] * 1000), close: c });
+      
+      out.push({ 
+        date: new Date(timestamps[i] * 1000), 
+        close: c,
+        high: highs[i] ?? c,
+        low: lows[i] ?? c,
+        open: opens[i] ?? c,
+        volume: volumes[i] ?? 0
+      });
     }
 
     out.sort((a, b) => a.date.getTime() - b.date.getTime());

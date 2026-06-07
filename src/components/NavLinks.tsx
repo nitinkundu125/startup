@@ -2,10 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { LayoutDashboard, Briefcase, ActivitySquare, Zap, User } from 'lucide-react';
 
 const links = [
   { href: '/', label: 'Dashboard' },
   { href: '/holdings', label: 'Holdings' },
+  { href: '/watchlist', label: 'Screener' },
+  { href: '/backtest', label: 'Backtest Lab' },
   { href: '/upload', label: 'Import' },
 ] as const;
 
@@ -14,7 +17,7 @@ export function NavLinks({ hasData }: { hasData: boolean }) {
 
   const visible = hasData
     ? links
-    : links.filter((l) => l.href === '/upload');
+    : links.filter((l) => l.href === '/upload' || l.href === '/watchlist' || l.href === '/backtest');
 
   return (
     <div className="flex items-center gap-1">
