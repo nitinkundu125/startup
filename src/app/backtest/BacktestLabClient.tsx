@@ -13,7 +13,24 @@ type WatchlistItem = {
   symbol: string;
 };
 
-
+function renderCondition(cond: SingleStrategyParams): string {
+  switch (cond.type) {
+    case 'RSI': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
+    case 'SMA': return `Fast: ${cond.fastPeriod}, Slow: ${cond.slowPeriod}`;
+    case 'EMA': return `Fast: ${cond.fastPeriod}, Slow: ${cond.slowPeriod}`;
+    case 'MACD': return `Fast: ${cond.fastPeriod}, Slow: ${cond.slowPeriod}, Sig: ${cond.signalPeriod}`;
+    case 'BB': return `Period: ${cond.period}, StdDev: ${cond.multiplier}`;
+    case 'STOCH': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
+    case 'ATR': return `Period: ${cond.period}, Mult: ${cond.multiplier}`;
+    case 'VWAP': return `Period: ${cond.period}`;
+    case 'OBV': return `Period: ${cond.period}`;
+    case 'ADX': return `Period: ${cond.period}, Thresh: ${cond.threshold}`;
+    case 'CCI': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
+    case 'PSAR': return `Step: ${cond.step}, Max: ${cond.max}`;
+    case 'ICHIMOKU': return `Tenkan: ${cond.tenkan}, Kijun: ${cond.kijun}, SenkouB: ${cond.senkouB}`;
+    default: return '';
+  }
+}
 
 export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: WatchlistItem[] }) {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(initialWatchlist);
