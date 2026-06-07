@@ -223,12 +223,14 @@ export function DashboardView({ initialOverall, initialStocks, initialMf, initia
               trend={isPositive ? 'up' : 'down'}
               icon={<TrendingUp className="h-5 w-5" />}
             />
-            <StatCard
-              label="Dividends"
-              value={displayFormat((currentInitial.totalDividends || 0) * effectiveRate)}
-              subValue="Cash earned from holding"
-              icon={<TrendingUp className="h-5 w-5" />}
-            />
+            {activeTab !== 'mf' && activeTab !== 'us_stocks' && (
+              <StatCard
+                label="Dividends"
+                value={displayFormat((currentInitial.totalDividends || 0) * effectiveRate)}
+                subValue="Cash earned from holding"
+                icon={<TrendingUp className="h-5 w-5" />}
+              />
+            )}
             <StatCard
               label="XIRR"
               value={xirrPct != null ? formatPercent(xirrPct) : '—'}
@@ -248,7 +250,12 @@ export function DashboardView({ initialOverall, initialStocks, initialMf, initia
             />
           </div>
 
-          <DashboardPositions holdings={currentHoldings} currency={displayUsd ? 'USD' : 'INR'} effectiveRate={effectiveRate} />
+          <DashboardPositions 
+            holdings={currentHoldings} 
+            currency={displayUsd ? 'USD' : 'INR'} 
+            effectiveRate={effectiveRate} 
+            showDividends={activeTab === 'overall' || activeTab === 'stocks'} 
+          />
 
           <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
             <Card className="min-w-0 overflow-hidden">

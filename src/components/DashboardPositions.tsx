@@ -5,7 +5,7 @@ import { formatINR, formatUSD, formatQuantity } from '@/lib/format';
 import { Card, CardHeader } from '@/components/ui/Card';
 import type { Holding } from '@/lib/portfolio';
 
-export function DashboardPositions({ holdings, currency = 'INR', effectiveRate = 1 }: { holdings: Holding[]; currency?: 'INR' | 'USD'; effectiveRate?: number }) {
+export function DashboardPositions({ holdings, currency = 'INR', effectiveRate = 1, showDividends = true }: { holdings: Holding[]; currency?: 'INR' | 'USD'; effectiveRate?: number; showDividends?: boolean }) {
   const displayFormat = currency === 'USD' ? formatUSD : formatINR;
 
   const rows = [...holdings]
@@ -56,9 +56,11 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
               <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
                 Current value
               </th>
-              <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
-                Dividends
-              </th>
+              {showDividends && (
+                <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
+                  Dividends
+                </th>
+              )}
               <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
                 P&L
               </th>
@@ -82,9 +84,11 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">
                     {displayFormat(h.currentValue)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-teal-600">
-                    {h.dividends > 0 ? displayFormat(h.dividends) : '—'}
-                  </td>
+                  {showDividends && (
+                    <td className="px-4 py-3 text-right tabular-nums text-teal-600">
+                      {h.dividends > 0 ? displayFormat(h.dividends) : '—'}
+                    </td>
+                  )}
                   <td
                     className={`px-4 py-3 text-right tabular-nums font-medium ${up ? 'text-success' : 'text-danger'}`}
                   >
@@ -110,9 +114,11 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
               <td className="px-4 py-3 text-right tabular-nums">
                 {displayFormat(rows.reduce((s, h) => s + h.currentValue, 0))}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums text-teal-600">
-                {displayFormat(rows.reduce((s, h) => s + h.dividends, 0))}
-              </td>
+              {showDividends && (
+                <td className="px-4 py-3 text-right tabular-nums text-teal-600">
+                  {displayFormat(rows.reduce((s, h) => s + h.dividends, 0))}
+                </td>
+              )}
               <td
                 className={`px-4 py-3 text-right tabular-nums ${
                   rows.reduce((s, h) => s + h.pnl, 0) >= 0 ? 'text-success' : 'text-danger'
