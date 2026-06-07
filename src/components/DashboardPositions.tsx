@@ -1,16 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { formatINR, formatQuantity } from '@/lib/format';
+import { formatINR, formatUSD, formatQuantity } from '@/lib/format';
 import { Card, CardHeader } from '@/components/ui/Card';
 import type { Holding } from '@/lib/portfolio';
 
-export function DashboardPositions({ holdings }: { holdings: Holding[] }) {
+export function DashboardPositions({ holdings, currency = 'INR', effectiveRate = 1 }: { holdings: Holding[]; currency?: 'INR' | 'USD'; effectiveRate?: number }) {
+  const displayFormat = currency === 'USD' ? formatUSD : formatINR;
+
   const rows = [...holdings]
     .map((h) => ({
       ...h,
-      currentValue: h.quantity * h.currentPrice,
-      pnl: h.quantity * h.currentPrice - h.totalInvested,
+      currentPrice: h.currentPrice * effectiveRate,
+      totalInvested: h.totalInvested * effectiveRate,
+      currentValue: h.quantity * (h.currentPrice * effectiveRate),
+      pnl: (h.quantity * (h.currentPrice * effectiveRate)) - (h.totalInvested * effectiveRate),
       pnlPct:
         h.totalInvested > 0
           ? ((h.quantity * h.currentPrice - h.totalInvested) / h.totalInvested) * 100
@@ -46,6 +50,9 @@ export function DashboardPositions({ holdings }: { holdings: Holding[] }) {
                 Last price
               </th>
               <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
+                Invested
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
                 Current value
               </th>
               <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
@@ -63,16 +70,19 @@ export function DashboardPositions({ holdings }: { holdings: Holding[] }) {
                     {formatQuantity(h.quantity)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {formatINR(h.currentPrice)}
+                    {displayFormat(h.currentPrice)}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-[var(--color-muted)]">
+                    {displayFormat(h.totalInvested)}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                    {formatINR(h.currentValue)}
+                    {displayFormat(h.currentValue)}
                   </td>
                   <td
                     className={`px-4 py-3 text-right tabular-nums font-medium ${up ? 'text-success' : 'text-danger'}`}
                   >
                     {up ? '+' : ''}
-                    {formatINR(h.pnl)}
+                    {displayFormat(h.pnl)}
                     <span className="ml-1 text-xs font-normal opacity-90">
                       ({up ? '+' : ''}
                       {h.pnlPct.toFixed(1)}%)
@@ -85,10 +95,13 @@ export function DashboardPositions({ holdings }: { holdings: Holding[] }) {
           <tfoot>
             <tr className="border-t border-[var(--color-border)] bg-slate-50/50 font-semibold">
               <td className="px-4 py-3" colSpan={3}>
-                Total current value
+                Totals
               </td>
               <td className="px-4 py-3 text-right tabular-nums">
-                {formatINR(rows.reduce((s, h) => s + h.currentValue, 0))}
+                {displayFormat(rows.reduce((s, h) => s + h.totalInvested, 0))}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums">
+                {displayFormat(rows.reduce((s, h) => s + h.currentValue, 0))}
               </td>
               <td
                 className={`px-4 py-3 text-right tabular-nums ${
@@ -96,7 +109,7 @@ export function DashboardPositions({ holdings }: { holdings: Holding[] }) {
                 }`}
               >
                 {rows.reduce((s, h) => s + h.pnl, 0) >= 0 ? '+' : ''}
-                {formatINR(rows.reduce((s, h) => s + h.pnl, 0))}
+                {displayFormat(rows.reduce((s, h) => s + h.pnl, 0))}
               </td>
             </tr>
           </tfoot>

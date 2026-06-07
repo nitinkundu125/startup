@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, ArrowRight } from 'lucide-react';
 import { UploadForm } from '@/components/UploadForm';
 import { DangerZone } from '@/components/DangerZone';
 import { requireAuth } from '@/lib/redirects';
@@ -17,13 +17,22 @@ export default async function UploadPage() {
     <div className="space-y-8">
       {!hasData ? (
         <PageHeader
-          title="Get started"
-          description="Upload your Zerodha tradebook CSV files to unlock the dashboard and holdings view."
+          title="Add Assets"
+          description="Upload your tradebook or CAS data to get started. You can also skip this and explore the dashboard first."
+          actions={
+            <Link
+              href="/"
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-white border border-[var(--color-border-strong)] px-4 text-sm font-medium text-[var(--color-foreground)] shadow-sm hover:bg-slate-50"
+            >
+              Skip to Dashboard
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          }
         />
       ) : (
         <PageHeader
           title="Import data"
-          description="Add more tradebook years or replace your portfolio with a fresh import."
+          description="Add more data or replace your portfolio with a fresh import."
           actions={
             <Link
               href="/"
@@ -36,7 +45,11 @@ export default async function UploadPage() {
         />
       )}
 
-      <UploadForm hasExistingData={hasData} />
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 lg:items-start">
+        <UploadForm hasExistingData={hasData} importType="STOCK" />
+        <UploadForm hasExistingData={hasData} importType="MUTUAL_FUND" />
+        <UploadForm hasExistingData={hasData} importType="US_STOCK" />
+      </div>
 
       {imports.length > 0 && (
         <Card>

@@ -23,15 +23,19 @@ function txTypeBadge(type: string, splitRatio: number | null) {
 
 export default async function HoldingsPage() {
   const userId = await requirePortfolioData();
-  const summary = await getPortfolioSummaryForUser(userId);
+  const overallSummary = await getPortfolioSummaryForUser(userId, undefined, undefined);
+  const stockSummary = await getPortfolioSummaryForUser(userId, undefined, 'STOCK');
+  const mfSummary = await getPortfolioSummaryForUser(userId, [], 'MUTUAL_FUND');
+  const usStockSummary = await getPortfolioSummaryForUser(userId, undefined, 'US_STOCK');
   const transactions = await getRecentTransactions(userId);
 
   return (
     <div className="space-y-8">
       <HoldingsView
-        initialHoldings={summary.holdings}
-        initialLtpFetchedAt={summary.ltpFetchedAt}
-        initialFailedCount={summary.ltpFailedSymbols.length}
+        initialOverall={overallSummary}
+        initialStocks={stockSummary}
+        initialMf={mfSummary}
+        initialUsStocks={usStockSummary}
       />
 
       <Card padding="none">

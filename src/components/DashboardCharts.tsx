@@ -14,7 +14,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
-import { formatINR } from '@/lib/format';
+import { formatINR, formatUSD } from '@/lib/format';
 
 function formatAxisInr(value: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -56,7 +56,9 @@ const tooltipStyle = {
   fontSize: '13px',
 };
 
-export function AllocationChart({ data }: { data: { name: string; value: number }[] }) {
+export function AllocationChart({ data, currency = 'INR' }: { data: { name: string; value: number }[]; currency?: 'USD' | 'INR' }) {
+  const displayFormat = currency === 'USD' ? formatUSD : formatINR;
+  
   if (!data?.length) {
     return <ChartEmpty message="No allocation data yet" />;
   }
@@ -86,7 +88,7 @@ export function AllocationChart({ data }: { data: { name: string; value: number 
               ))}
             </Pie>
             <Tooltip
-              formatter={(value) => formatINR(Number(value))}
+              formatter={(value) => displayFormat(Number(value))}
               labelFormatter={(name) => String(name)}
               contentStyle={tooltipStyle}
             />
@@ -110,7 +112,7 @@ export function AllocationChart({ data }: { data: { name: string; value: number 
         </p>
       )}
       <p className="mt-3 border-t border-[var(--color-border)] pt-3 text-center text-sm font-medium text-[var(--color-foreground)]">
-        Total current value {formatINR(total)}
+        Total current value {displayFormat(total)}
       </p>
     </div>
   );

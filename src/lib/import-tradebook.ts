@@ -25,7 +25,7 @@ export type ImportSummary = {
   mergedRenames?: number;
 };
 
-async function getOrCreateAsset(userId: string, row: TradebookRow): Promise<string> {
+async function getOrCreateAsset(userId: string, row: TradebookRow, assetClass: string): Promise<string> {
   const canonicalKey = getCanonicalKey(row.isin, row.symbol);
 
   const existing = await prisma.asset.findUnique({
@@ -58,6 +58,7 @@ async function getOrCreateAsset(userId: string, row: TradebookRow): Promise<stri
         symbolAliases: JSON.stringify([...new Set(aliases)]),
         price: row.price,
         name: row.symbol,
+        assetClass,
       },
     });
     return existing.id;
@@ -72,6 +73,7 @@ async function getOrCreateAsset(userId: string, row: TradebookRow): Promise<stri
       symbolAliases: '[]',
       name: row.symbol,
       price: row.price,
+      assetClass,
     },
   });
   return asset.id;
@@ -103,7 +105,8 @@ async function transactionExists(userId: string, row: TradebookRow): Promise<boo
 export async function importTradebookFromCsv(
   userId: string,
   content: string,
-  fileName: string
+  fileName: string,
+  assetClass: string = 'STOCK'
 ): Promise<FileImportResult> {
   const { rows, errors, skipped: parseSkipped } = parseTradebookCsv(content);
   const symbols = [...new Set(rows.map((r) => r.symbol))];
@@ -131,7 +134,7 @@ export async function importTradebookFromCsv(
       continue;
     }
 
-    const assetId = await getOrCreateAsset(userId, row);
+    const assetId = await getOrCreateAsset(userId, row, assetClass);
     await prisma.transaction.create({
       data: {
         userId,
@@ -190,7 +193,8 @@ async function refreshAssetPrices(userId: string): Promise<void> {
 export async function importMultipleTradebooks(
   userId: string,
   files: { name: string; content: string }[],
-  replace = false
+  replace = false,
+  assetClass = 'STOCK'
 ): Promise<ImportSummary> {
   if (replace) {
     await prisma.transaction.deleteMany({ where: { userId } });
@@ -200,7 +204,7 @@ export async function importMultipleTradebooks(
 
   const results: FileImportResult[] = [];
   for (const file of files) {
-    results.push(await importTradebookFromCsv(userId, file.content, file.name));
+    results.push(await importTradebookFromCsv(userId, file.content, file.name, assetClass));
   }
 
   const mergedRenames = await normalizeUserAssets(userId);

@@ -34,7 +34,7 @@ type ImportResponse = {
   sessionExpired?: boolean;
 };
 
-export function UploadForm({ hasExistingData }: { hasExistingData: boolean }) {
+export function UploadForm({ hasExistingData, importType = 'STOCK' }: { hasExistingData: boolean; importType?: 'STOCK' | 'MUTUAL_FUND' | 'US_STOCK' }) {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [replace, setReplace] = useState(false);
@@ -68,6 +68,7 @@ export function UploadForm({ hasExistingData }: { hasExistingData: boolean }) {
       formData.append('files', file);
     }
     if (replace) formData.append('replace', 'true');
+    formData.append('importType', importType);
 
     try {
       const res = await fetch('/api/import', { method: 'POST', body: formData });
@@ -95,8 +96,20 @@ export function UploadForm({ hasExistingData }: { hasExistingData: boolean }) {
     <form onSubmit={handleSubmit} className="space-y-6">
       <Card>
         <CardHeader
-          title="Import CSV files"
-          description="Zerodha tradebook exports plus optional holdings file."
+          title={
+            importType === 'MUTUAL_FUND' 
+              ? "Import Mutual Fund Tradebooks" 
+              : importType === 'US_STOCK' 
+              ? "Import US Stocks" 
+              : "Import CSV files"
+          }
+          description={
+            importType === 'MUTUAL_FUND' 
+              ? "Upload your Mutual Fund CAS or tradebook exports." 
+              : importType === 'US_STOCK'
+              ? "Upload your US Stocks tradebook exports."
+              : "Zerodha tradebook exports plus optional holdings file."
+          }
         />
 
         <div

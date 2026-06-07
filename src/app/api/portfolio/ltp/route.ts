@@ -16,20 +16,33 @@ export async function POST() {
   }
 
   try {
-    const assets = await prisma.asset.findMany({
-      where: { userId: user.id },
+    const stockAssets = await prisma.asset.findMany({
+      where: { userId: user.id, assetClass: 'STOCK' },
       select: { symbol: true },
     });
 
-    const symbols = [...new Set(assets.map((a) => a.symbol))];
-    if (symbols.length === 0) {
+    const mfAssetsDb = await prisma.asset.findMany({
+      where: { userId: user.id, assetClass: 'MUTUAL_FUND' },
+      select: { symbol: true, isin: true },
+    });
+
+    const usStockAssets = await prisma.asset.findMany({
+      where: { userId: user.id, assetClass: 'US_STOCK' },
+      select: { symbol: true },
+    });
+
+    const stockSymbols = [...new Set(stockAssets.map((a) => a.symbol))];
+    const mfAssets = mfAssetsDb.filter((v, i, a) => a.findIndex((t) => t.symbol === v.symbol) === i);
+    const usStockSymbols = [...new Set(usStockAssets.map((a) => a.symbol))];
+
+    if (stockSymbols.length === 0 && mfAssets.length === 0 && usStockSymbols.length === 0) {
       return NextResponse.json(
         { error: 'No holdings to price. Import tradebooks first.' },
         { status: 400 }
       );
     }
 
-    const snapshot = await refreshLtpsForUser(user.id, symbols);
+    const snapshot = await refreshLtpsForUser(user.id, stockSymbols, mfAssets, usStockSymbols);
 
     revalidatePath('/');
     revalidatePath('/holdings');

@@ -32,6 +32,7 @@ type DbTx = {
     isin: string | null;
     symbolAliases: string;
     price: number;
+    assetClass: string;
   };
 };
 
@@ -85,6 +86,7 @@ function appendNseSplitsIfMissing(
         date: dateFromDayKey(dayKey),
         currentPrice: keeper.asset.price,
         tradeId: null,
+        assetClass: keeper.asset.assetClass,
       });
     }
   }
@@ -138,6 +140,7 @@ function processedRowToTxInput(
     date: row.tradeDate,
     currentPrice: keeper.asset.price,
     tradeId: row.tradeId,
+    assetClass: keeper.asset.assetClass,
   };
 }
 
@@ -155,6 +158,7 @@ function directDbToTxInput(tx: DbTx, allAliases: string[]): TxInput {
     date: tx.date,
     currentPrice: tx.asset.price,
     tradeId: tx.tradeId,
+    assetClass: tx.asset.assetClass,
   };
 }
 

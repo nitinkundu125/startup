@@ -25,6 +25,7 @@ export type TxInput = {
   date: Date;
   currentPrice: number;
   tradeId?: string | null;
+  assetClass: string;
 };
 
 export type Holding = {
@@ -42,6 +43,7 @@ export type Holding = {
   brokerAdjusted?: boolean;
   /** Price from live NSE/Yahoo fetch */
   liveLtp?: boolean;
+  assetClass: string;
 };
 
 export type PortfolioSummary = {
@@ -60,6 +62,7 @@ type AssetMeta = {
   symbolAliases: string[];
   isin: string | null;
   currentPrice: number;
+  assetClass: string;
 };
 
 /** Update mark-to-market price from a trade or corporate action (same rules for every symbol). */
@@ -132,6 +135,7 @@ function holdingFromPosition(
     avgBuyPrice: avgCost(position),
     totalInvested: position.totalCost,
     unrealizedPnl: unrealizedPnl(position, last),
+    assetClass: meta.assetClass,
   };
 }
 
@@ -168,6 +172,7 @@ export function buildPortfolioSummary(transactions: TxInput[]): PortfolioSummary
         symbolAliases: tx.symbolAliases ?? [],
         isin: tx.isin ?? null,
         currentPrice: tx.currentPrice,
+        assetClass: tx.assetClass,
       });
     }
 

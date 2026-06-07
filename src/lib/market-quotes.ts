@@ -4,6 +4,7 @@ export type LtpSnapshot = {
   fetchedAt: string;
   prices: Record<string, number>;
   failed?: string[];
+  usdInr?: number;
 };
 
 const NSE_QUOTE =
@@ -84,6 +85,54 @@ export async function fetchLtpsForSymbols(symbols: string[]): Promise<{
     await Promise.all(
       batch.map(async (sym) => {
         const ltp = await fetchLtpForSymbol(sym);
+        if (ltp != null) {
+          prices[sym] = ltp;
+        } else {
+          failed.push(sym);
+        }
+      })
+    );
+    if (i + BATCH_SIZE < unique.length) {
+      await sleep(BATCH_DELAY_MS);
+    }
+  }
+
+  return { prices, failed };
+}
+
+export async function fetchUsYahooLtp(symbol: string): Promise<number | null> {
+  const ticker = symbol.toUpperCase();
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PortfolioApp/1.0)' },
+      next: { revalidate: 0 },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      chart?: { result?: { meta?: { regularMarketPrice?: number } }[] };
+    };
+    const price = json.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return price != null && Number.isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchUsLtpsForSymbols(symbols: string[]): Promise<{
+  prices: Record<string, number>;
+  failed: string[];
+}> {
+  const unique = [...new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  const prices: Record<string, number> = {};
+  const failed: string[] = [];
+
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    const batch = unique.slice(i, i + BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (sym) => {
+        const ltp = await fetchUsYahooLtp(sym);
         if (ltp != null) {
           prices[sym] = ltp;
         } else {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Wallet, TrendingUp, Layers, Upload, Percent } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -12,6 +12,7 @@ import { DashboardPositions } from '@/components/DashboardPositions';
 import { formatINR, formatPercent } from '@/lib/format';
 import { applyPricesToHoldings, totalsFromHoldings } from '@/lib/holding-prices';
 import type { Holding } from '@/lib/portfolio';
+import { UploadForm } from '@/components/UploadForm';
 
 type DashboardInitial = {
   holdings: Holding[];
@@ -24,21 +25,51 @@ type DashboardInitial = {
   xirr: number | null;
   ltpFetchedAt: string | null;
   ltpFailedSymbols: string[];
+  usdInr?: number;
 };
 
-export function DashboardView({ initial }: { initial: DashboardInitial }) {
-  const [holdings, setHoldings] = useState(initial.holdings);
-  const [ltpFetchedAt, setLtpFetchedAt] = useState(initial.ltpFetchedAt);
-  const [failedCount, setFailedCount] = useState(initial.ltpFailedSymbols.length);
+export function DashboardView({ initialOverall, initialStocks, initialMf, initialUsStocks }: { initialOverall: DashboardInitial, initialStocks: DashboardInitial, initialMf: DashboardInitial, initialUsStocks: DashboardInitial }) {
+  const [activeTab, setActiveTab] = useState<'overall' | 'stocks' | 'mf' | 'us_stocks'>('overall');
+  
+  const [overallHoldings, setOverallHoldings] = useState(initialOverall.holdings);
+  const [stockHoldings, setStockHoldings] = useState(initialStocks.holdings);
+  const [mfHoldings, setMfHoldings] = useState(initialMf.holdings);
+  const [usStockHoldings, setUsStockHoldings] = useState(initialUsStocks.holdings);
+  
+  const [ltpFetchedAt, setLtpFetchedAt] = useState(initialOverall.ltpFetchedAt);
+  const [failedCount, setFailedCount] = useState(initialOverall.ltpFailedSymbols.length);
+  const [usdInrRate, setUsdInrRate] = useState(initialOverall.usdInr);
 
-  const totals = totalsFromHoldings(holdings);
+  const [currencyDisplay, setCurrencyDisplay] = useState<'USD' | 'INR'>('USD');
+
+  // Sync state when server props update (e.g., after router.refresh() from an import)
+  useEffect(() => {
+    setOverallHoldings(initialOverall.holdings);
+    setStockHoldings(initialStocks.holdings);
+    setMfHoldings(initialMf.holdings);
+    setUsStockHoldings(initialUsStocks.holdings);
+    setLtpFetchedAt(initialOverall.ltpFetchedAt);
+    setFailedCount(initialOverall.ltpFailedSymbols.length);
+    setUsdInrRate(initialOverall.usdInr);
+  }, [initialOverall, initialStocks, initialMf, initialUsStocks]);
+
+  const currentHoldings = activeTab === 'overall' ? overallHoldings : activeTab === 'stocks' ? stockHoldings : activeTab === 'mf' ? mfHoldings : usStockHoldings;
+  const currentInitial = activeTab === 'overall' ? initialOverall : activeTab === 'stocks' ? initialStocks : activeTab === 'mf' ? initialMf : initialUsStocks;
+
+  const totals = totalsFromHoldings(currentHoldings);
   const isPositive = totals.totalProfit >= 0;
 
   const xirrPct =
-    initial.xirr != null && Number.isFinite(initial.xirr)
-      ? initial.xirr * 100
+    currentInitial.xirr != null && Number.isFinite(currentInitial.xirr)
+      ? currentInitial.xirr * 100
       : null;
   const xirrPositive = xirrPct != null && xirrPct >= 0;
+
+  const showCurrencyToggle = activeTab === 'us_stocks';
+  const displayUsd = showCurrencyToggle && currencyDisplay === 'USD';
+  const effectiveRate = showCurrencyToggle && !displayUsd ? (usdInrRate ?? 83.5) : 1;
+
+  const displayFormat = displayUsd ? formatUSD : formatINR;
 
   return (
     <div className="space-y-8">
@@ -51,9 +82,13 @@ export function DashboardView({ initial }: { initial: DashboardInitial }) {
               lastFetchedAt={ltpFetchedAt}
               failedCount={failedCount}
               onSuccess={(result) => {
-                setHoldings((prev) => applyPricesToHoldings(prev, result.prices));
+                setOverallHoldings((prev) => applyPricesToHoldings(prev, result.prices));
+                setStockHoldings((prev) => applyPricesToHoldings(prev, result.prices));
+                setMfHoldings((prev) => applyPricesToHoldings(prev, result.prices));
+                setUsStockHoldings((prev) => applyPricesToHoldings(prev, result.prices));
                 setLtpFetchedAt(result.fetchedAt);
                 setFailedCount(result.failed.length);
+                if (result.usdInr) setUsdInrRate(result.usdInr);
               }}
             />
             <Link
@@ -67,60 +102,140 @@ export function DashboardView({ initial }: { initial: DashboardInitial }) {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-        <StatCard
-          label="Invested"
-          value={formatINR(totals.totalInvested)}
-          subValue="FIFO cost basis"
-          icon={<Wallet className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Current value"
-          value={formatINR(totals.totalValue)}
-          subValue={ltpFetchedAt ? 'Based on live LTP' : 'Qty × last trade price'}
-          icon={<Wallet className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Unrealized P&L"
-          value={`${isPositive ? '+' : ''}${formatINR(totals.totalProfit)}`}
-          subValue={`${isPositive ? '+' : ''}${totals.profitPercentage.toFixed(2)}%`}
-          trend={isPositive ? 'up' : 'down'}
-          icon={<TrendingUp className="h-5 w-5" />}
-        />
-        <StatCard
-          label="XIRR"
-          value={xirrPct != null ? formatPercent(xirrPct) : '—'}
-          subValue={
-            xirrPct != null
-              ? 'Annualized (trades + current value)'
-              : 'Need buys, sells, and current value'
-          }
-          trend={xirrPct != null ? (xirrPositive ? 'up' : 'down') : 'neutral'}
-          icon={<Percent className="h-5 w-5" />}
-        />
-        <StatCard
-          label="Holdings"
-          value={String(holdings.length)}
-          subValue={`${totals.allocationData.length} with market value`}
-          icon={<Layers className="h-5 w-5" />}
-        />
+      <div className="flex space-x-1 rounded-lg bg-slate-100 p-1 w-fit">
+        <button
+          onClick={() => setActiveTab('overall')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+            activeTab === 'overall'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+          }`}
+        >
+          Overall
+        </button>
+        <button
+          onClick={() => setActiveTab('stocks')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+            activeTab === 'stocks'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+          }`}
+        >
+          Stocks
+        </button>
+        <button
+          onClick={() => setActiveTab('mf')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+            activeTab === 'mf'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+          }`}
+        >
+          Mutual Funds
+        </button>
+        <button
+          onClick={() => setActiveTab('us_stocks')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${
+            activeTab === 'us_stocks'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+          }`}
+        >
+          US Stocks
+        </button>
       </div>
 
-      <DashboardPositions holdings={holdings} />
+      {showCurrencyToggle && (
+        <div className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-white p-1 shadow-sm w-fit">
+          <button
+            onClick={() => setCurrencyDisplay('USD')}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+              currencyDisplay === 'USD' ? 'bg-teal-50 text-teal-700' : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            USD
+          </button>
+          <button
+            onClick={() => setCurrencyDisplay('INR')}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+              currencyDisplay === 'INR' ? 'bg-teal-50 text-teal-700' : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            INR
+          </button>
+        </div>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader title="Allocation" description="By current market value" />
-          <AllocationChart data={totals.allocationData} />
-        </Card>
-        <Card className="min-w-0 overflow-hidden lg:col-span-2">
-          <CardHeader
-            title="Performance"
-            description="Month-end value vs same cash flows in Nifty indices (Yahoo)"
-          />
-          <PerformanceChart data={initial.performanceData} />
-        </Card>
-      </div>
+      {activeTab === 'stocks' && stockHoldings.length === 0 ? (
+        <div className="mt-8">
+          <UploadForm hasExistingData={false} importType="STOCK" />
+        </div>
+      ) : activeTab === 'mf' && mfHoldings.length === 0 ? (
+        <div className="mt-8">
+          <UploadForm hasExistingData={false} importType="MUTUAL_FUND" />
+        </div>
+      ) : activeTab === 'us_stocks' && usStockHoldings.length === 0 ? (
+        <div className="mt-8">
+          <UploadForm hasExistingData={false} importType="US_STOCK" />
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+            <StatCard
+              label="Invested"
+              value={displayFormat(totals.totalInvested * effectiveRate)}
+              subValue="FIFO cost basis"
+              icon={<Wallet className="h-5 w-5" />}
+            />
+            <StatCard
+              label="Current value"
+              value={displayFormat(totals.totalValue * effectiveRate)}
+              subValue={ltpFetchedAt ? 'Based on live LTP' : 'Qty × last trade price'}
+              icon={<Wallet className="h-5 w-5" />}
+            />
+            <StatCard
+              label="Unrealized P&L"
+              value={`${isPositive ? '+' : ''}${displayFormat(totals.totalProfit * effectiveRate)}`}
+              subValue={`${isPositive ? '+' : ''}${totals.profitPercentage.toFixed(2)}%`}
+              trend={isPositive ? 'up' : 'down'}
+              icon={<TrendingUp className="h-5 w-5" />}
+            />
+            <StatCard
+              label="XIRR"
+              value={xirrPct != null ? formatPercent(xirrPct) : '—'}
+              subValue={
+                xirrPct != null
+                  ? 'Annualized (trades + current value)'
+                  : 'Need buys, sells, and current value'
+              }
+              trend={xirrPct != null ? (xirrPositive ? 'up' : 'down') : 'neutral'}
+              icon={<Percent className="h-5 w-5" />}
+            />
+            <StatCard
+              label="Holdings"
+              value={String(currentHoldings.length)}
+              subValue={`${totals.allocationData.length} with market value`}
+              icon={<Layers className="h-5 w-5" />}
+            />
+          </div>
+
+          <DashboardPositions holdings={currentHoldings} currency={displayUsd ? 'USD' : 'INR'} effectiveRate={effectiveRate} />
+
+          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+            <Card className="min-w-0 overflow-hidden">
+              <CardHeader title="Allocation" description="By current market value" />
+              <AllocationChart data={totals.allocationData.map(d => ({ ...d, value: d.value * effectiveRate }))} currency={displayUsd ? 'USD' : 'INR'} />
+            </Card>
+            <Card className="min-w-0 overflow-hidden lg:col-span-2">
+              <CardHeader
+                title="Performance"
+                description="Month-end value vs same cash flows in Nifty indices (Yahoo)"
+              />
+              <PerformanceChart data={currentInitial.performanceData} />
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

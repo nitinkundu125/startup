@@ -34,6 +34,7 @@ export type PortfolioWithDoctor = PortfolioSummary & {
   holdingsMismatches: ReconcileMismatch[];
   ltpFetchedAt: string | null;
   ltpFailedSymbols: string[];
+  usdInr?: number;
   xirr: number | null;
   performanceChartData: PerformanceChartPoint[];
 };
@@ -95,7 +96,8 @@ function recalcPortfolioTotals(
 
 export async function getPortfolioSummaryForUser(
   userId: string,
-  brokerHoldings?: { symbol: string; quantity: number; avgCost: number; ltp?: number }[]
+  brokerHoldings?: { symbol: string; quantity: number; avgCost: number; ltp?: number }[],
+  assetClass?: string
 ): Promise<PortfolioWithDoctor> {
   await purgeStoredSplitTransactions(userId);
   await normalizeUserAssets(userId);
@@ -104,12 +106,31 @@ export async function getPortfolioSummaryForUser(
     brokerHoldings ?? (await getBrokerHoldingsForUser(userId));
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId },
+    where: { 
+      userId,
+      ...(assetClass ? { asset: { assetClass } } : {})
+    },
     include: { asset: true },
     orderBy: { date: 'asc' },
   });
 
-  const txInputs = await buildTxInputsFromDbTransactions(transactions);
+  const ltpSnapshot = await getLtpSnapshotForUser(userId);
+  const usdInrRate = ltpSnapshot?.usdInr ?? 83.5; // Fallback rate if not fetched yet
+
+  let txInputs = await buildTxInputsFromDbTransactions(transactions);
+
+  // If calculating Overall summary, convert US Stocks to INR using the live exchange rate
+  if (!assetClass) {
+    txInputs = txInputs.map((tx) => {
+      if (tx.assetClass === 'US_STOCK') {
+        return {
+          ...tx,
+          price: tx.price * usdInrRate,
+        };
+      }
+      return tx;
+    });
+  }
 
   let summary = buildPortfolioSummary(txInputs);
   const holdingsMismatches = broker.length
@@ -174,10 +195,10 @@ export async function getPortfolioSummaryForUser(
     summary = { ...summary, holdings: withLtp, ...recalcPortfolioTotals(withLtp) };
   }
 
-  const ltpSnapshot = await getLtpSnapshotForUser(userId);
   const { holdings: withLiveLtp, ltpFetchedAt } = applyLiveLtpToHoldings(
     summary.holdings,
-    ltpSnapshot
+    ltpSnapshot,
+    !assetClass ? usdInrRate : undefined
   );
   if (ltpFetchedAt) {
     summary = {
@@ -226,6 +247,7 @@ export async function getPortfolioSummaryForUser(
     holdingsMismatches,
     ltpFetchedAt,
     ltpFailedSymbols: ltpSnapshot?.failed ?? [],
+    usdInr: ltpSnapshot?.usdInr,
     xirr: xirrRate,
     performanceChartData,
   };

@@ -7,23 +7,34 @@ import {
   getPortfolioSummaryForUser,
   formatMonthLabel,
 } from '@/lib/portfolio-data';
-import { requirePortfolioData } from '@/lib/redirects';
+import { requireAuth } from '@/lib/redirects';
 
 export default async function Dashboard() {
-  const userId = await requirePortfolioData();
-  const summary = await getPortfolioSummaryForUser(userId);
-  const errors = summary.doctorWarnings.filter((w) => w.level === 'error');
-  const warns = summary.doctorWarnings.filter((w) => w.level === 'warn');
+  const userId = await requireAuth();
+  
+  const overallSummary = await getPortfolioSummaryForUser(userId, undefined, undefined);
+  const stockSummary = await getPortfolioSummaryForUser(userId, undefined, 'STOCK');
+  const mfSummary = await getPortfolioSummaryForUser(userId, [], 'MUTUAL_FUND');
+  const usStockSummary = await getPortfolioSummaryForUser(userId, undefined, 'US_STOCK');
+  
+  const errors = overallSummary.doctorWarnings.filter((w) => w.level === 'error');
+  const warns = overallSummary.doctorWarnings.filter((w) => w.level === 'warn');
 
-  const chartPerformance = summary.performanceChartData.map((p) => ({
-    date: formatMonthLabel(p.date),
-    value: p.value,
-    invested: p.invested,
-    nifty50: p.nifty50,
-    nifty500: p.nifty500,
-    midcap150: p.midcap150,
-    smallcap250: p.smallcap250,
-  }));
+  const formatPerformance = (summary: any) =>
+    summary.performanceChartData.map((p: any) => ({
+      date: formatMonthLabel(p.date),
+      value: p.value,
+      invested: p.invested,
+      nifty50: p.nifty50,
+      nifty500: p.nifty500,
+      midcap150: p.midcap150,
+      smallcap250: p.smallcap250,
+    }));
+
+  const overallPerformance = formatPerformance(overallSummary);
+  const stockPerformance = formatPerformance(stockSummary);
+  const mfPerformance = formatPerformance(mfSummary);
+  const usStockPerformance = formatPerformance(usStockSummary);
 
   return (
     <div className="space-y-8">
@@ -43,26 +54,61 @@ export default async function Dashboard() {
               </li>
             ))}
           </ul>
-          {summary.doctorWarnings.length > 10 && (
-            <p className="mt-2 text-xs opacity-80">
-              +{summary.doctorWarnings.length - 10} more — review on Holdings
-            </p>
-          )}
         </Alert>
       )}
 
       <DashboardView
-        initial={{
-          holdings: summary.holdings,
-          totalValue: summary.totalValue,
-          totalInvested: summary.totalInvested,
-          totalProfit: summary.totalProfit,
-          profitPercentage: summary.profitPercentage,
-          allocationData: summary.allocationData,
-          performanceData: chartPerformance,
-          xirr: summary.xirr,
-          ltpFetchedAt: summary.ltpFetchedAt,
-          ltpFailedSymbols: summary.ltpFailedSymbols,
+        initialOverall={{
+          holdings: overallSummary.holdings,
+          totalValue: overallSummary.totalValue,
+          totalInvested: overallSummary.totalInvested,
+          totalProfit: overallSummary.totalProfit,
+          profitPercentage: overallSummary.profitPercentage,
+          allocationData: overallSummary.allocationData,
+          performanceData: overallPerformance,
+          xirr: overallSummary.xirr,
+          ltpFetchedAt: overallSummary.ltpFetchedAt,
+          ltpFailedSymbols: overallSummary.ltpFailedSymbols,
+          usdInr: overallSummary.usdInr,
+        }}
+        initialStocks={{
+          holdings: stockSummary.holdings,
+          totalValue: stockSummary.totalValue,
+          totalInvested: stockSummary.totalInvested,
+          totalProfit: stockSummary.totalProfit,
+          profitPercentage: stockSummary.profitPercentage,
+          allocationData: stockSummary.allocationData,
+          performanceData: stockPerformance,
+          xirr: stockSummary.xirr,
+          ltpFetchedAt: stockSummary.ltpFetchedAt,
+          ltpFailedSymbols: stockSummary.ltpFailedSymbols,
+          usdInr: stockSummary.usdInr,
+        }}
+        initialMf={{
+          holdings: mfSummary.holdings,
+          totalValue: mfSummary.totalValue,
+          totalInvested: mfSummary.totalInvested,
+          totalProfit: mfSummary.totalProfit,
+          profitPercentage: mfSummary.profitPercentage,
+          allocationData: mfSummary.allocationData,
+          performanceData: mfPerformance,
+          xirr: mfSummary.xirr,
+          ltpFetchedAt: mfSummary.ltpFetchedAt,
+          ltpFailedSymbols: mfSummary.ltpFailedSymbols,
+          usdInr: mfSummary.usdInr,
+        }}
+        initialUsStocks={{
+          holdings: usStockSummary.holdings,
+          totalValue: usStockSummary.totalValue,
+          totalInvested: usStockSummary.totalInvested,
+          totalProfit: usStockSummary.totalProfit,
+          profitPercentage: usStockSummary.profitPercentage,
+          allocationData: usStockSummary.allocationData,
+          performanceData: usStockPerformance,
+          xirr: usStockSummary.xirr,
+          ltpFetchedAt: usStockSummary.ltpFetchedAt,
+          ltpFailedSymbols: usStockSummary.ltpFailedSymbols,
+          usdInr: usStockSummary.usdInr,
         }}
       />
 

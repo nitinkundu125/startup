@@ -6,6 +6,14 @@ export function formatINR(value: number): string {
   }).format(value);
 }
 
+export function formatUSD(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 /** Shorter INR for chart axes (lakhs / crores) — avoids clipped tick labels. */
 export function formatINRCompact(value: number): string {
   const abs = Math.abs(value);
@@ -22,6 +30,18 @@ export function formatINRCompact(value: number): string {
     return `${sign}₹${(abs / 1e3).toFixed(0)}k`;
   }
   return formatINR(value);
+}
+
+export function formatUSDCompact(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '−' : '';
+  if (abs >= 1e6) {
+    return `${sign}${(abs / 1e6).toFixed(1)}M`;
+  }
+  if (abs >= 1e3) {
+    return `${sign}${(abs / 1e3).toFixed(1)}k`;
+  }
+  return formatUSD(value);
 }
 
 export function formatPercent(value: number, digits = 2): string {

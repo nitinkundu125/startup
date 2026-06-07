@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
-import { formatINR, formatQuantity } from '@/lib/format';
+import { formatINR, formatUSD, formatQuantity } from '@/lib/format';
 import { formatAssetLabel } from '@/lib/asset-identity';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -27,6 +27,7 @@ type SortKey =
   | 'quantity'
   | 'avgBuyPrice'
   | 'currentPrice'
+  | 'totalInvested'
   | 'totalValue'
   | 'profit'
   | 'profitPct';
@@ -39,11 +40,13 @@ type EnrichedHolding = HoldingRow & {
   profitPct: number;
 };
 
-function enrich(h: HoldingRow): EnrichedHolding {
-  const totalValue = h.quantity * h.currentPrice;
-  const profit = totalValue - h.totalInvested;
-  const profitPct = h.totalInvested > 0 ? (profit / h.totalInvested) * 100 : 0;
-  return { ...h, totalValue, profit, profitPct };
+function enrich(h: HoldingRow, effectiveRate: number = 1): EnrichedHolding {
+  const currentPrice = h.currentPrice * effectiveRate;
+  const totalInvested = h.totalInvested * effectiveRate;
+  const totalValue = h.quantity * currentPrice;
+  const profit = totalValue - totalInvested;
+  const profitPct = totalInvested > 0 ? (profit / totalInvested) * 100 : 0;
+  return { ...h, currentPrice, totalInvested, totalValue, profit, profitPct };
 }
 
 function compare(a: EnrichedHolding, b: EnrichedHolding, key: SortKey): number {
@@ -56,6 +59,8 @@ function compare(a: EnrichedHolding, b: EnrichedHolding, key: SortKey): number {
       return a.avgBuyPrice - b.avgBuyPrice;
     case 'currentPrice':
       return a.currentPrice - b.currentPrice;
+    case 'totalInvested':
+      return a.totalInvested - b.totalInvested;
     case 'totalValue':
       return a.totalValue - b.totalValue;
     case 'profit':
@@ -67,21 +72,14 @@ function compare(a: EnrichedHolding, b: EnrichedHolding, key: SortKey): number {
   }
 }
 
-const COLUMNS: { key: SortKey; label: string; align?: 'right' }[] = [
-  { key: 'asset', label: 'Symbol' },
-  { key: 'quantity', label: 'Qty', align: 'right' },
-  { key: 'avgBuyPrice', label: 'Avg cost', align: 'right' },
-  { key: 'currentPrice', label: 'Last price', align: 'right' },
-  { key: 'totalValue', label: 'Value', align: 'right' },
-  { key: 'profit', label: 'P&L', align: 'right' },
-];
-
-export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
+export function HoldingsTable({ holdings, showInvestedValue, currency = 'INR', effectiveRate = 1 }: { holdings: HoldingRow[], showInvestedValue?: boolean, currency?: 'USD' | 'INR', effectiveRate?: number }) {
   const [sortKey, setSortKey] = useState<SortKey>('totalValue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [query, setQuery] = useState('');
 
-  const enriched = useMemo(() => holdings.map(enrich), [holdings]);
+  const displayFormat = currency === 'USD' ? formatUSD : formatINR;
+
+  const enriched = useMemo(() => holdings.map(h => enrich(h, effectiveRate)), [holdings, effectiveRate]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toUpperCase();
@@ -133,6 +131,23 @@ export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
     );
   }
 
+  const columns = useMemo(() => {
+    const cols: { key: SortKey; label: string; align?: 'right' }[] = [
+      { key: 'asset', label: 'Symbol' },
+      { key: 'quantity', label: 'Qty', align: 'right' },
+      { key: 'avgBuyPrice', label: 'Avg cost', align: 'right' },
+      { key: 'currentPrice', label: 'Last price', align: 'right' },
+    ];
+    if (showInvestedValue) {
+      cols.push({ key: 'totalInvested', label: 'Invested', align: 'right' });
+    }
+    cols.push(
+      { key: 'totalValue', label: 'Value', align: 'right' },
+      { key: 'profit', label: 'P&L', align: 'right' }
+    );
+    return cols;
+  }, [showInvestedValue]);
+
   if (holdings.length === 0) {
     return (
       <EmptyState
@@ -158,13 +173,13 @@ export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
         </div>
         <div className="flex flex-wrap gap-4 text-sm tabular-nums">
           <span className="text-[var(--color-muted)]">
-            Value <strong className="text-[var(--color-foreground)]">{formatINR(totals.value)}</strong>
+            Value <strong className="text-[var(--color-foreground)]">{displayFormat(totals.value)}</strong>
           </span>
           <span className="text-[var(--color-muted)]">
             P&L{' '}
             <strong className={totals.profit >= 0 ? 'text-success' : 'text-danger'}>
               {totals.profit >= 0 ? '+' : ''}
-              {formatINR(totals.profit)}
+              {displayFormat(totals.profit)}
             </strong>
           </span>
         </div>
@@ -175,7 +190,7 @@ export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] bg-slate-50/80">
-                {COLUMNS.map((col) => (
+                {columns.map((col) => (
                   <th
                     key={col.key}
                     className={`px-4 py-3 font-medium text-[var(--color-muted)] ${col.align === 'right' ? 'text-right' : ''}`}
@@ -195,7 +210,7 @@ export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
             <tbody className="divide-y divide-[var(--color-border)]">
               {sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-[var(--color-muted)]">
+                  <td colSpan={columns.length} className="px-4 py-12 text-center text-[var(--color-muted)]">
                     No symbols match &quot;{query}&quot;
                   </td>
                 </tr>
@@ -231,13 +246,18 @@ export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
                         {formatQuantity(holding.quantity)}
                       </td>
                       <td className="px-4 py-3.5 text-right tabular-nums text-[var(--color-muted)]">
-                        {formatINR(holding.avgBuyPrice)}
+                        {displayFormat(holding.avgBuyPrice * effectiveRate)}
                       </td>
                       <td className="px-4 py-3.5 text-right tabular-nums">
-                        {formatINR(holding.currentPrice)}
+                        {displayFormat(holding.currentPrice)}
                       </td>
+                      {showInvestedValue && (
+                        <td className="px-4 py-3.5 text-right font-medium tabular-nums text-[var(--color-muted)]">
+                          {displayFormat(holding.totalInvested)}
+                        </td>
+                      )}
                       <td className="px-4 py-3.5 text-right font-medium tabular-nums">
-                        {formatINR(holding.totalValue)}
+                        {displayFormat(holding.totalValue)}
                       </td>
                       <td className="px-4 py-3.5 text-right tabular-nums">
                         <div
@@ -246,7 +266,7 @@ export function HoldingsTable({ holdings }: { holdings: HoldingRow[] }) {
                           }
                         >
                           {isPositive ? '+' : ''}
-                          {formatINR(holding.profit)}
+                          {displayFormat(holding.profit)}
                         </div>
                         <div
                           className={`text-xs ${isPositive ? 'text-success' : 'text-danger'}`}

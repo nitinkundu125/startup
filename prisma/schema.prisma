@@ -59,6 +59,7 @@ model Asset {
   symbolAliases String        @default("[]")
   name          String
   price         Float         @default(0.0)
+  assetClass    String        @default("STOCK")
   transactions  Transaction[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

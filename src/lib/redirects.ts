@@ -9,8 +9,6 @@ export async function requireAuth() {
 
 export async function requirePortfolioData() {
   const userId = await requireAuth();
-  const hasData = await userHasPortfolioData(userId);
-  if (!hasData) redirect('/upload');
   return userId;
 }
 

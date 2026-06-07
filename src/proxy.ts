@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifySessionToken } from '@/lib/session-token';
 
-const PUBLIC_PATHS = ['/login'];
+const PUBLIC_PATHS = ['/login', '/mf'];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (
@@ -20,7 +20,7 @@ export async function middleware(request: NextRequest) {
   const userId = token ? await verifySessionToken(token) : null;
 
   if (!userId) {
-    if (PUBLIC_PATHS.includes(pathname)) {
+    if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith('/mf')) {
       return NextResponse.next();
     }
     const loginUrl = new URL('/login', request.url);

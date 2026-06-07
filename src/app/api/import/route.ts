@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const replace = formData.get('replace') === 'true';
+    const importType = (formData.get('importType') as string) || 'STOCK';
     const fileEntries = formData.getAll('files');
 
     const files: { name: string; content: string }[] = [];
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await importMultipleTradebooks(userId, files, replace);
+    const result = await importMultipleTradebooks(userId, files, replace, importType);
 
     if (result.totalImported === 0) {
       const allErrors = result.files.flatMap((f) => f.errors);
