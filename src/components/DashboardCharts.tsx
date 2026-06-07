@@ -9,10 +9,14 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
   Legend,
+  ReferenceLine,
 } from 'recharts';
 import { formatINR, formatUSD } from '@/lib/format';
 
@@ -270,6 +274,134 @@ export function PerformanceChart({ data }: { data: PerformanceChartRow[] }) {
             )}
           </LineChart>
         </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+export function CashFlowChart({ data }: { data: { month: string; invested: number; withdrawn: number; net: number }[] }) {
+  if (!data?.length) {
+    return <ChartEmpty message="Import trades to see your cash flows over time" />;
+  }
+
+  const chartData = data.map((d) => ({
+    ...d,
+    withdrawnNegative: d.withdrawn > 0 ? -d.withdrawn : 0,
+  }));
+
+  const totalInvested = data.reduce((sum, d) => sum + d.invested, 0);
+  const totalWithdrawn = data.reduce((sum, d) => sum + d.withdrawn, 0);
+  const netTotal = totalInvested - totalWithdrawn;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 h-[280px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 8, bottom: 0 }}>
+            <CartesianGrid stroke="#f8fafc" strokeDasharray="3 3" vertical={false} />
+            <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1} />
+            <XAxis
+              dataKey="month"
+              tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => {
+                const [y, m] = v.split('-');
+                const d = new Date(Number(y), Number(m) - 1, 1);
+                return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+              }}
+              dy={8}
+            />
+            <YAxis
+              tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => formatAxisInr(Number(v))}
+              width={76}
+              dx={-4}
+            />
+            <Tooltip
+              formatter={(value: number, name: string) => [
+                formatINR(Math.abs(value)),
+                name === 'invested' ? 'Invested' : name === 'withdrawnNegative' ? 'Withdrawn' : 'Net Flow',
+              ]}
+              labelFormatter={(v) => {
+                const [y, m] = v.split('-');
+                const d = new Date(Number(y), Number(m) - 1, 1);
+                return <span className="font-semibold text-slate-800">{d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span>;
+              }}
+              contentStyle={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+                padding: '10px 14px',
+              }}
+              itemStyle={{ padding: '2px 0', fontSize: '13px' }}
+            />
+            <Legend
+              verticalAlign="top"
+              height={32}
+              iconType="circle"
+              wrapperStyle={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}
+              formatter={(value) => (
+                <span className="text-slate-600 ml-1">
+                  {value === 'invested' ? 'Invested' : value === 'withdrawnNegative' ? 'Withdrawn' : 'Net Flow'}
+                </span>
+              )}
+            />
+            <Bar dataKey="invested" name="invested" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={32} stackId="a" />
+            <Bar dataKey="withdrawnNegative" name="withdrawnNegative" fill="#f43f5e" radius={[0, 0, 4, 4]} maxBarSize={32} stackId="a" />
+            <Line
+              type="monotone"
+              dataKey="net"
+              name="net"
+              stroke="#0f172a"
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#ffffff', stroke: '#0f172a', strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: '#0f172a', stroke: '#ffffff', strokeWidth: 2 }}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Summary Table Sidebar */}
+      <div className="flex flex-col border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-6">
+        <h4 className="text-sm font-semibold text-slate-900 mb-4 tracking-tight">All-Time Summary</h4>
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs text-slate-500 font-medium">Total Invested</p>
+            <p className="text-lg font-semibold text-emerald-600">{formatINR(totalInvested)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 font-medium">Total Withdrawn</p>
+            <p className="text-lg font-semibold text-rose-600">{formatINR(totalWithdrawn)}</p>
+          </div>
+          <div className="pt-3 border-t border-slate-100">
+            <p className="text-xs text-slate-500 font-medium">Net Capital Flow</p>
+            <p className={`text-xl font-bold tracking-tight ${netTotal >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+              {formatINR(netTotal)}
+            </p>
+          </div>
+        </div>
+
+        <h4 className="text-sm font-semibold text-slate-900 mt-8 mb-3 tracking-tight">Recent Months</h4>
+        <div className="overflow-y-auto pr-2 space-y-2.5 max-h-[120px] scrollbar-thin scrollbar-thumb-slate-200">
+          {[...data].reverse().slice(0, 12).map((d) => {
+            const [y, m] = d.month.split('-');
+            const dateObj = new Date(Number(y), Number(m) - 1, 1);
+            const monthStr = dateObj.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+            return (
+              <div key={d.month} className="flex justify-between items-center text-sm group">
+                <span className="text-slate-500 font-medium">{monthStr}</span>
+                <span className={`font-semibold ${d.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {d.net >= 0 ? '+' : ''}{formatINR(d.net)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

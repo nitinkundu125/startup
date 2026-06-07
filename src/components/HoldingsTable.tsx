@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
 import { formatINR, formatUSD, formatQuantity } from '@/lib/format';
 import { formatAssetLabel } from '@/lib/asset-identity';
@@ -20,6 +21,9 @@ export type HoldingRow = {
   totalInvested: number;
   brokerAdjusted?: boolean;
   liveLtp?: boolean;
+  benchmarkId?: string | null;
+  xirr?: number | null;
+  benchmarkXirr?: number | null;
 };
 
 type SortKey =
@@ -30,7 +34,8 @@ type SortKey =
   | 'totalInvested'
   | 'totalValue'
   | 'profit'
-  | 'profitPct';
+  | 'profitPct'
+  | 'xirr';
 
 type SortDir = 'asc' | 'desc';
 
@@ -67,15 +72,20 @@ function compare(a: EnrichedHolding, b: EnrichedHolding, key: SortKey): number {
       return a.profit - b.profit;
     case 'profitPct':
       return a.profitPct - b.profitPct;
+    case 'xirr':
+      return (a.xirr ?? -999) - (b.xirr ?? -999);
     default:
       return 0;
   }
 }
 
 export function HoldingsTable({ holdings, showInvestedValue, currency = 'INR', effectiveRate = 1 }: { holdings: HoldingRow[], showInvestedValue?: boolean, currency?: 'USD' | 'INR', effectiveRate?: number }) {
+  const router = useRouter();
   const [sortKey, setSortKey] = useState<SortKey>('totalValue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [query, setQuery] = useState('');
+  
+  const [updatingBench, setUpdatingBench] = useState<string | null>(null);
 
   const displayFormat = currency === 'USD' ? formatUSD : formatINR;
 
@@ -143,7 +153,8 @@ export function HoldingsTable({ holdings, showInvestedValue, currency = 'INR', e
     }
     cols.push(
       { key: 'totalValue', label: 'Value', align: 'right' },
-      { key: 'profit', label: 'P&L', align: 'right' }
+      { key: 'profit', label: 'P&L', align: 'right' },
+      { key: 'xirr', label: 'XIRR', align: 'right' }
     );
     return cols;
   }, [showInvestedValue]);
@@ -240,6 +251,15 @@ export function HoldingsTable({ holdings, showInvestedValue, currency = 'INR', e
                           {holding.brokerAdjusted && (
                             <Badge tone="warning">Broker qty</Badge>
                           )}
+                          <div className="ml-2 flex items-center">
+                            <span className="text-[10px] text-slate-400 mr-1 uppercase tracking-wider">vs</span>
+                            <span className="text-xs text-slate-500 font-medium border-b border-dashed border-slate-300">
+                              {holding.benchmarkId === 'smallcap250' ? 'Smallcap 250' : 
+                               holding.benchmarkId === 'midcap150' ? 'Midcap 150' : 
+                               holding.benchmarkId === 'nifty500' ? 'Nifty 500' : 
+                               'Nifty 50'}
+                            </span>
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-right tabular-nums">
@@ -274,6 +294,33 @@ export function HoldingsTable({ holdings, showInvestedValue, currency = 'INR', e
                           {isPositive ? '+' : ''}
                           {holding.profitPct.toFixed(2)}%
                         </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-right tabular-nums">
+                        <div
+                          className={
+                            holding.xirr && holding.xirr >= 0 ? 'font-medium text-[var(--color-foreground)]' : 'font-medium text-danger'
+                          }
+                        >
+                          {holding.xirr != null ? `${(holding.xirr * 100).toFixed(1)}%` : '—'}
+                        </div>
+                        {holding.benchmarkXirr != null && holding.xirr != null && (
+                          <div
+                            className={`text-[10px] mt-1 flex flex-col items-end gap-0.5 ${
+                              holding.xirr >= holding.benchmarkXirr
+                                ? 'text-teal-600'
+                                : 'text-slate-400'
+                            }`}
+                            title="Benchmark XIRR for same cash flows"
+                          >
+                            <span>vs {holding.benchmarkId === 'smallcap250' ? 'Smallcap 250' : 
+                               holding.benchmarkId === 'midcap150' ? 'Midcap 150' : 
+                               holding.benchmarkId === 'nifty500' ? 'Nifty 500' : 
+                               'Nifty 50'}: {(holding.benchmarkXirr * 100).toFixed(1)}%</span>
+                            <span className="font-medium bg-slate-50/50 px-1 py-0.5 rounded">
+                               {holding.xirr >= holding.benchmarkXirr ? '+' : ''}{((holding.xirr - holding.benchmarkXirr) * 100).toFixed(1)}% Alpha
+                            </span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

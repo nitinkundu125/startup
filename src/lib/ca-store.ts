@@ -23,6 +23,7 @@ function toDbRow(a: ParsedCorporateAction) {
     ratioNum: a.bonusRatio?.bonus ?? null,
     ratioDen: a.bonusRatio?.held ?? null,
     shareMultiplier: a.shareMultiplier ?? null,
+    dividendAmount: a.dividendAmount ?? null,
     source: a.source,
   };
 }
@@ -35,6 +36,7 @@ function fromDbRow(row: {
   ratioNum: number | null;
   ratioDen: number | null;
   shareMultiplier: number | null;
+  dividendAmount: number | null;
   source: string;
 }): ParsedCorporateAction {
   const type = row.actionType as ParsedCorporateAction['type'];
@@ -45,6 +47,7 @@ function fromDbRow(row: {
     subject: row.subject,
     source: row.source as 'NSE',
     shareMultiplier: row.shareMultiplier ?? undefined,
+    dividendAmount: row.dividendAmount ?? undefined,
     bonusRatio:
       row.ratioNum != null && row.ratioDen != null
         ? { bonus: row.ratioNum, held: row.ratioDen }
@@ -71,6 +74,7 @@ export async function upsertCorporateActions(
         ratioNum: a.bonusRatio?.bonus ?? null,
         ratioDen: a.bonusRatio?.held ?? null,
         shareMultiplier: a.shareMultiplier ?? null,
+        dividendAmount: a.dividendAmount ?? null,
         fetchedAt: new Date(),
       },
     });

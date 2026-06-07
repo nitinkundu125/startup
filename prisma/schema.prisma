@@ -17,6 +17,7 @@ model CorporateAction {
   ratioNum        Float?
   ratioDen        Float?
   shareMultiplier Float?
+  dividendAmount  Float?
   source          String   @default("NSE")
   fetchedAt       DateTime @default(now())
 
@@ -60,6 +61,7 @@ model Asset {
   name          String
   price         Float         @default(0.0)
   assetClass    String        @default("STOCK")
+  benchmarkId   String?
   transactions  Transaction[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

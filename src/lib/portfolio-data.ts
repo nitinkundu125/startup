@@ -16,8 +16,12 @@ import { portfolioCashFlows } from '@/lib/cashflows';
 import { xirr } from '@/lib/xirr';
 import {
   buildBenchmarkMonthValues,
+  indexCashEventsFromTransactions,
+  simulateBenchmarkXirr,
+  BENCHMARK_INDICES,
   type BenchmarkId,
 } from '@/lib/benchmark';
+import { fetchYahooDailyCloses, type DailyClose } from '@/lib/index-history';
 
 export type PerformanceChartPoint = {
   date: string;
@@ -228,6 +232,49 @@ export async function getPortfolioSummaryForUser(
 
   const cashFlows = portfolioCashFlows(txInputs, summary.totalValue);
   const xirrRate = xirr(cashFlows);
+
+  function inferBenchmark(name: string, assetClass: string): string {
+    if (assetClass === 'STOCK') return 'nifty500';
+    const lower = name.toLowerCase();
+    if (lower.includes('small') && lower.includes('cap')) return 'smallcap250';
+    if (lower.includes('mid') && lower.includes('cap')) return 'midcap150';
+    if (lower.includes('flexi') && lower.includes('cap')) return 'nifty500';
+    if (lower.includes('multi') && lower.includes('cap')) return 'nifty500';
+    if (lower.includes('large') && lower.includes('mid')) return 'nifty500';
+    if (lower.includes('500')) return 'nifty500';
+    return 'nifty50';
+  }
+
+  const requiredBenchmarks = new Set<string>();
+  summary.holdings.forEach((h) => requiredBenchmarks.add(inferBenchmark(h.name, h.assetClass)));
+
+  const seriesMap = new Map<string, DailyClose[]>();
+  for (const bId of requiredBenchmarks) {
+    const idx = BENCHMARK_INDICES.find((b) => b.id === bId);
+    if (idx) {
+      const start = txInputs.length > 0 ? txInputs[0].date : new Date('2000-01-01');
+      const series = await fetchYahooDailyCloses(idx.yahoo, start);
+      seriesMap.set(bId, series);
+    }
+  }
+
+  summary.holdings = summary.holdings.map((h) => {
+    const assetTxs = txInputs.filter((t) => t.assetId === h.assetId);
+    const terminalValue = h.quantity * h.currentPrice;
+
+    const flows = portfolioCashFlows(assetTxs, terminalValue);
+    const hXirr = xirr(flows);
+
+    let hBenchXirr: number | null = null;
+    const bId = inferBenchmark(h.name, h.assetClass);
+    const series = seriesMap.get(bId);
+    if (series && series.length > 0) {
+      const events = indexCashEventsFromTransactions(assetTxs);
+      hBenchXirr = simulateBenchmarkXirr(events, series);
+    }
+
+    return { ...h, xirr: hXirr, benchmarkXirr: hBenchXirr, benchmarkId: bId };
+  });
 
   const doctorWarnings = runPortfolioDoctor(txInputs);
   for (const m of holdingsMismatches) {

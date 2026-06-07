@@ -15,6 +15,8 @@ export type ParsedCorporateAction = {
   shareMultiplier?: number;
   /** BONUS: bonus shares per held shares (4:1 → bonus=4, held=1) */
   bonusRatio?: { bonus: number; held: number };
+  /** DIVIDEND: cash dividend per share */
+  dividendAmount?: number;
 };
 
 type NseRow = {
@@ -167,7 +169,13 @@ export function parseNseSubject(
   }
 
   if (/dividend/i.test(s)) {
-    return { ...base, type: 'DIVIDEND' };
+    let dividendAmount: number | undefined;
+    const match = s.match(/(?:rs?\.?|rupees?)\s*([\d.]+)/i);
+    if (match) {
+      const val = parseFloat(match[1]);
+      if (val > 0) dividendAmount = val;
+    }
+    return { ...base, type: 'DIVIDEND', dividendAmount };
   }
 
   return null;
@@ -233,7 +241,7 @@ export function buildRegistry(
   const reg: CorporateActionRegistry = new Map();
   for (const a of actions) {
     const dk = localDateKey(a.exDate);
-    const dedupe = `${a.symbol}|${a.type}|${dk}|${a.shareMultiplier ?? ''}|${a.bonusRatio?.bonus ?? ''}:${a.bonusRatio?.held ?? ''}`;
+    const dedupe = `${a.symbol}|${a.type}|${dk}|${a.shareMultiplier ?? ''}|${a.bonusRatio?.bonus ?? ''}:${a.bonusRatio?.held ?? ''}|${a.dividendAmount ?? ''}`;
     if (seen.has(dedupe)) continue;
     seen.add(dedupe);
     if (!reg.has(a.symbol)) reg.set(a.symbol, new Map());

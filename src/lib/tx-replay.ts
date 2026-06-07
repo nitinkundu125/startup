@@ -49,7 +49,7 @@ function isAlreadyPreprocessed(txs: DbTx[]): boolean {
   });
 }
 
-function appendNseSplitsIfMissing(
+function appendSyntheticCorporateActions(
   inputs: TxInput[],
   registry: CorporateActionRegistry,
   symbol: string,
@@ -61,33 +61,51 @@ function appendNseSplitsIfMissing(
 
   const existing = new Set(
     inputs
-      .filter((i) => i.symbol.toUpperCase() === symbol.toUpperCase() && i.type === 'SPLIT')
-      .map((i) => `${localDateKey(i.date)}|${i.splitRatio ?? ''}`)
+      .filter((i) => i.symbol.toUpperCase() === symbol.toUpperCase() && (i.type === 'SPLIT' || i.type === 'DIVIDEND'))
+      .map((i) => `${localDateKey(i.date)}|${i.type}|${i.splitRatio ?? i.price}`)
   );
 
   for (const [dayKey, actions] of byDay) {
     for (const ca of sortActionsForApply(actions)) {
-      if (ca.type !== 'SPLIT' || !ca.shareMultiplier || ca.shareMultiplier <= 1) {
-        continue;
+      if (ca.type === 'SPLIT' && ca.shareMultiplier && ca.shareMultiplier > 1) {
+        const key = `${dayKey}|SPLIT|${ca.shareMultiplier}`;
+        if (existing.has(key)) continue;
+        existing.add(key);
+        inputs.push({
+          assetId: keeper.assetId,
+          symbol: keeper.asset.symbol,
+          name: keeper.asset.name,
+          symbolAliases: aliases,
+          isin: keeper.asset.isin,
+          type: 'SPLIT',
+          quantity: 0,
+          price: 0,
+          splitRatio: ca.shareMultiplier,
+          date: dateFromDayKey(dayKey),
+          currentPrice: keeper.asset.price,
+          tradeId: null,
+          assetClass: keeper.asset.assetClass,
+        });
+      } else if (ca.type === 'DIVIDEND' && ca.dividendAmount && ca.dividendAmount > 0) {
+        const key = `${dayKey}|DIVIDEND|${ca.dividendAmount}`;
+        if (existing.has(key)) continue;
+        existing.add(key);
+        inputs.push({
+          assetId: keeper.assetId,
+          symbol: keeper.asset.symbol,
+          name: keeper.asset.name,
+          symbolAliases: aliases,
+          isin: keeper.asset.isin,
+          type: 'DIVIDEND',
+          quantity: 0,
+          price: ca.dividendAmount,
+          splitRatio: null,
+          date: dateFromDayKey(dayKey),
+          currentPrice: keeper.asset.price,
+          tradeId: null,
+          assetClass: keeper.asset.assetClass,
+        });
       }
-      const key = `${dayKey}|${ca.shareMultiplier}`;
-      if (existing.has(key)) continue;
-      existing.add(key);
-      inputs.push({
-        assetId: keeper.assetId,
-        symbol: keeper.asset.symbol,
-        name: keeper.asset.name,
-        symbolAliases: aliases,
-        isin: keeper.asset.isin,
-        type: 'SPLIT',
-        quantity: 0,
-        price: 0,
-        splitRatio: ca.shareMultiplier,
-        date: dateFromDayKey(dayKey),
-        currentPrice: keeper.asset.price,
-        tradeId: null,
-        assetClass: keeper.asset.assetClass,
-      });
     }
   }
 }
@@ -207,7 +225,7 @@ export async function buildTxInputsFromDbTransactions(txs: DbTx[]): Promise<TxIn
           )
         );
       }
-      appendNseSplitsIfMissing(inputs, registry, symbol, keeper, aliases);
+      appendSyntheticCorporateActions(inputs, registry, symbol, keeper, aliases);
       continue;
     }
 

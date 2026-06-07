@@ -1,15 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Wallet, TrendingUp, Layers, Upload, Percent } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard } from '@/components/ui/StatCard';
-import { AllocationChart, PerformanceChart, type PerformanceChartRow } from '@/components/DashboardCharts';
+import { AllocationChart, PerformanceChart, CashFlowChart, type PerformanceChartRow } from '@/components/DashboardCharts';
 import { RefreshLtpButton } from '@/components/RefreshLtpButton';
 import { DashboardPositions } from '@/components/DashboardPositions';
-import { formatINR, formatPercent } from '@/lib/format';
+import { formatINR, formatUSD, formatPercent } from '@/lib/format';
 import { applyPricesToHoldings, totalsFromHoldings } from '@/lib/holding-prices';
 import type { Holding } from '@/lib/portfolio';
 import { UploadForm } from '@/components/UploadForm';
@@ -22,6 +22,8 @@ type DashboardInitial = {
   profitPercentage: number;
   allocationData: { name: string; value: number }[];
   performanceData: PerformanceChartRow[];
+  monthlyCashFlows: { month: string; invested: number; withdrawn: number; net: number }[];
+  totalDividends: number;
   xirr: number | null;
   ltpFetchedAt: string | null;
   ltpFailedSymbols: string[];
@@ -70,6 +72,27 @@ export function DashboardView({ initialOverall, initialStocks, initialMf, initia
   const effectiveRate = showCurrencyToggle && !displayUsd ? (usdInrRate ?? 83.5) : 1;
 
   const displayFormat = displayUsd ? formatUSD : formatINR;
+
+  const mfCategoryAllocation = useMemo(() => {
+    if (activeTab !== 'mf') return [];
+    const map = new Map<string, number>();
+    for (const h of currentHoldings) {
+      const name = h.name.toLowerCase();
+      let category = 'Other / Debt';
+      if (name.includes('small') && name.includes('cap')) category = 'Small Cap';
+      else if (name.includes('mid') && name.includes('cap')) category = 'Mid Cap';
+      else if (name.includes('flexi') || name.includes('multi')) category = 'Flexi / Multi Cap';
+      else if (name.includes('large') && name.includes('mid')) category = 'Large & Mid Cap';
+      else if (name.includes('index') || name.includes('nifty') || name.includes('sensex')) category = 'Index Funds';
+      else if (name.includes('elss') || name.includes('tax')) category = 'ELSS (Tax Saving)';
+      else if (name.includes('large') || name.includes('bluechip')) category = 'Large Cap / Bluechip';
+      
+      map.set(category, (map.get(category) || 0) + (h.quantity * h.currentPrice));
+    }
+    return Array.from(map.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [activeTab, currentHoldings]);
 
   return (
     <div className="space-y-8">
@@ -201,6 +224,12 @@ export function DashboardView({ initialOverall, initialStocks, initialMf, initia
               icon={<TrendingUp className="h-5 w-5" />}
             />
             <StatCard
+              label="Dividends"
+              value={displayFormat((currentInitial.totalDividends || 0) * effectiveRate)}
+              subValue="Cash earned from holding"
+              icon={<TrendingUp className="h-5 w-5" />}
+            />
+            <StatCard
               label="XIRR"
               value={xirrPct != null ? formatPercent(xirrPct) : '—'}
               subValue={
@@ -223,9 +252,15 @@ export function DashboardView({ initialOverall, initialStocks, initialMf, initia
 
           <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
             <Card className="min-w-0 overflow-hidden">
-              <CardHeader title="Allocation" description="By current market value" />
+              <CardHeader title={activeTab === 'mf' ? "Fund Allocation" : "Allocation"} description="By current market value" />
               <AllocationChart data={totals.allocationData.map(d => ({ ...d, value: d.value * effectiveRate }))} currency={displayUsd ? 'USD' : 'INR'} />
             </Card>
+            {activeTab === 'mf' && (
+              <Card className="min-w-0 overflow-hidden">
+                <CardHeader title="Category Allocation" description="By mutual fund category" />
+                <AllocationChart data={mfCategoryAllocation} currency="INR" />
+              </Card>
+            )}
             <Card className="min-w-0 overflow-hidden lg:col-span-2">
               <CardHeader
                 title="Performance"
@@ -233,6 +268,15 @@ export function DashboardView({ initialOverall, initialStocks, initialMf, initia
               />
               <PerformanceChart data={currentInitial.performanceData} />
             </Card>
+            {activeTab === 'mf' && (
+              <Card className="min-w-0 overflow-hidden lg:col-span-2">
+                <CardHeader
+                  title="Monthly Cash Flows"
+                  description="Total capital invested vs withdrawn per month"
+                />
+                <CashFlowChart data={currentInitial.monthlyCashFlows} />
+              </Card>
+            )}
           </div>
         </>
       )}

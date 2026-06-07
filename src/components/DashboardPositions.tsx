@@ -14,6 +14,7 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
       currentPrice: h.currentPrice * effectiveRate,
       totalInvested: h.totalInvested * effectiveRate,
       currentValue: h.quantity * (h.currentPrice * effectiveRate),
+      dividends: (h.dividends || 0) * effectiveRate,
       pnl: (h.quantity * (h.currentPrice * effectiveRate)) - (h.totalInvested * effectiveRate),
       pnlPct:
         h.totalInvested > 0
@@ -56,6 +57,9 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
                 Current value
               </th>
               <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
+                Dividends
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-[var(--color-muted)]">
                 P&L
               </th>
             </tr>
@@ -77,6 +81,9 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
                   </td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">
                     {displayFormat(h.currentValue)}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-teal-600">
+                    {h.dividends > 0 ? displayFormat(h.dividends) : '—'}
                   </td>
                   <td
                     className={`px-4 py-3 text-right tabular-nums font-medium ${up ? 'text-success' : 'text-danger'}`}
@@ -102,6 +109,9 @@ export function DashboardPositions({ holdings, currency = 'INR', effectiveRate =
               </td>
               <td className="px-4 py-3 text-right tabular-nums">
                 {displayFormat(rows.reduce((s, h) => s + h.currentValue, 0))}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums text-teal-600">
+                {displayFormat(rows.reduce((s, h) => s + h.dividends, 0))}
               </td>
               <td
                 className={`px-4 py-3 text-right tabular-nums ${

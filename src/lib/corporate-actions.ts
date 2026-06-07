@@ -13,7 +13,7 @@ export const BONUS_MAX_PRICE = 0.01;
 
 const QTY_EPS = 1e-6;
 
-export type TradeEventType = 'BUY' | 'SELL' | 'BONUS' | 'DEMAT' | 'SPLIT';
+export type TradeEventType = 'BUY' | 'SELL' | 'BONUS' | 'DEMAT' | 'SPLIT' | 'DIVIDEND';
 
 const SPLIT_RATIO_CANDIDATES = [2, 3, 4, 5, 10, 20];
 
@@ -35,6 +35,7 @@ export type TradeEvent = {
   dematBuyQty?: number;
   dematPreservedCost?: number;
   splitRatio?: number;
+  dividendAmount?: number;
 };
 
 export function isBonusTrade(row: TradebookRow): boolean {
@@ -130,6 +131,8 @@ function pushNseCorporateEvents(
           tradeDate: ca.exDate,
           quantity: additional,
           price: 0,
+          tradeId: null,
+          orderId: null,
         });
       }
     } else if (ca.type === 'SPLIT' && ca.shareMultiplier && ca.shareMultiplier > 1) {
@@ -139,9 +142,23 @@ function pushNseCorporateEvents(
         quantity: 0,
         price: 0,
         splitRatio: ca.shareMultiplier,
+        tradeId: null,
+        orderId: null,
       };
       events.push(splitEv);
       applyEventToSim(sim, splitEv);
+    } else if (ca.type === 'DIVIDEND' && ca.dividendAmount && ca.dividendAmount > 0) {
+      const divEv: TradeEvent = {
+        ...rowToEvent(refRow, 'DIVIDEND'),
+        tradeDate: ca.exDate,
+        quantity: 0,
+        price: ca.dividendAmount,
+        dividendAmount: ca.dividendAmount,
+        tradeId: null,
+        orderId: null,
+      };
+      events.push(divEv);
+      // Dividends do not change the number of shares held or cost basis
     }
   }
 }
@@ -276,6 +293,8 @@ export function tradebookToEvents(
             quantity: 0,
             price: 0,
             splitRatio: ratio,
+            tradeId: null,
+            orderId: null,
           };
           events.push(splitEv);
           applyEventToSim(sim, splitEv);
@@ -298,6 +317,8 @@ export function tradebookToEvents(
           price: 0,
           dematBuyQty: totalBuyQty,
           dematPreservedCost: preserved,
+          tradeId: null,
+          orderId: null,
         };
         events.push(dematEv);
         sim.qty = totalBuyQty;
@@ -405,6 +426,24 @@ export function eventsToTradebookRows(events: TradeEvent[]): TradebookRow[] {
       });
       continue;
     }
+    if (ev.type === 'DIVIDEND' && ev.dividendAmount) {
+      out.push({
+        symbol: ev.symbol,
+        isin: ev.isin,
+        tradeDate: ev.tradeDate,
+        exchange: ev.exchange,
+        segment: ev.segment,
+        series: ev.series,
+        type: 'DIVIDEND',
+        auction: ev.auction,
+        quantity: 0,
+        price: ev.dividendAmount,
+        tradeId: ev.tradeId,
+        orderId: ev.orderId,
+        orderExecutionTime: ev.orderExecutionTime,
+      });
+      continue;
+    }
     if (ev.type === 'BUY' || ev.type === 'SELL') {
       out.push({
         symbol: ev.symbol,
@@ -446,6 +485,7 @@ export function normalizeTxType(
   if (u === 'CA_BUY' || u === 'DEMAT') return 'DEMAT';
   if (u === 'BUY' && price < BONUS_MAX_PRICE) return 'BONUS';
   if (u === 'SPLIT' && splitRatio) return 'SPLIT';
+  if (u === 'DIVIDEND') return 'DIVIDEND';
   return u;
 }
 

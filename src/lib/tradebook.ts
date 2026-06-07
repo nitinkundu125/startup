@@ -14,7 +14,7 @@ export const TRADEBOOK_HEADERS = [
   'order_execution_time',
 ] as const;
 
-export type TradeType = 'BUY' | 'SELL' | 'BONUS' | 'SPLIT' | 'CA_BUY';
+export type TradeType = 'BUY' | 'SELL' | 'BONUS' | 'SPLIT' | 'CA_BUY' | 'DIVIDEND';
 
 export type TradebookRow = {
   symbol: string;
@@ -126,6 +126,7 @@ export function parseTradebookCsv(content: string): ParseResult {
 
   const idx = (name: string) => headers.indexOf(name);
   const seen = new Set<string>();
+  const tradeIdCounts = new Map<string, number>();
 
   for (let i = 1; i < lines.length; i++) {
     const fields = parseCsvLine(lines[i]);
@@ -196,6 +197,15 @@ export function parseTradebookCsv(content: string): ParseResult {
       continue;
     }
     seen.add(key);
+
+    if (row.tradeId) {
+      const count = (tradeIdCounts.get(row.tradeId) || 0) + 1;
+      tradeIdCounts.set(row.tradeId, count);
+      if (count > 1) {
+        row.tradeId = `${row.tradeId}-${count}`;
+      }
+    }
+
     rows.push(row);
   }
 

@@ -17,9 +17,9 @@ export type BenchmarkIndex = {
 
 /** Yahoo symbols with daily history (index tickers verified on chart API). */
 export const BENCHMARK_INDICES: BenchmarkIndex[] = [
-  { id: 'nifty50', label: 'Nifty 50', yahoo: '^NSEI' },
-  { id: 'nifty500', label: 'Nifty 500', yahoo: '^CRSLDX' },
-  { id: 'midcap150', label: 'Midcap 150', yahoo: 'NIFTYMIDCAP150.NS' },
+  { id: 'nifty50', label: 'Nifty 50', yahoo: 'NIFTYBEES.NS' },
+  { id: 'nifty500', label: 'Nifty 500', yahoo: 'MONIFTY500.NS' },
+  { id: 'midcap150', label: 'Midcap 150', yahoo: 'MID150BEES.NS' },
   /** Index has no Yahoo history; HDFC Smallcap 250 ETF tracks the index from Feb 2023. */
   { id: 'smallcap250', label: 'Smallcap 250', yahoo: 'HDFCSML250.NS' },
 ];
@@ -51,6 +51,33 @@ export function indexCashEventsFromTransactions(transactions: TxInput[]): IndexC
   return events;
 }
 
+export function calculateIndexTerminalValue(events: IndexCashEvent[], indexSeries: DailyClose[], asOf: Date): number | null {
+  if (!events.length || !indexSeries.length) return null;
+
+  let units = 0;
+  let eventIdx = 0;
+
+  while (eventIdx < events.length && events[eventIdx].date.getTime() <= asOf.getTime()) {
+    const ev = events[eventIdx];
+    const px = indexPriceOnDate(indexSeries, ev.date);
+    if (px != null && px > 0) {
+      if (ev.isBuy) {
+        units += ev.amount / px;
+      } else {
+        const sellUnits = ev.amount / px;
+        units = Math.max(0, units - sellUnits);
+      }
+    }
+    eventIdx++;
+  }
+
+  const endPx = indexPriceOnDate(indexSeries, asOf);
+  if (endPx != null && units > 0) {
+    return units * endPx;
+  }
+  return 0;
+}
+
 /**
  * Same cash flows as the portfolio, invested in a single index (units of index).
  * Returns month-end simulated value for each `YYYY-MM` key.
@@ -68,30 +95,30 @@ export function simulateIndexMonthEnds(
 
   for (const ym of monthKeys) {
     const end = monthEndDate(ym);
-
-    while (eventIdx < events.length && events[eventIdx].date.getTime() <= end.getTime()) {
-      const ev = events[eventIdx];
-      const px = indexPriceOnDate(indexSeries, ev.date);
-      if (px != null && px > 0) {
-        if (ev.isBuy) {
-          units += ev.amount / px;
-        } else {
-          const sellUnits = ev.amount / px;
-          units = Math.max(0, units - sellUnits);
-        }
-      }
-      eventIdx++;
-    }
-
-    const endPx = indexPriceOnDate(indexSeries, end);
-    if (endPx != null && units > 0) {
-      result.set(ym, units * endPx);
-    } else {
-      result.set(ym, 0);
-    }
+    const endValue = calculateIndexTerminalValue(events, indexSeries, end);
+    result.set(ym, endValue || 0);
   }
 
   return result;
+}
+
+import { xirr, type CashFlow } from '@/lib/xirr';
+
+export function simulateBenchmarkXirr(events: IndexCashEvent[], indexSeries: DailyClose[], asOf: Date = new Date()): number | null {
+  if (!events.length || !indexSeries.length) return null;
+
+  const terminalValue = calculateIndexTerminalValue(events, indexSeries, asOf) || 0;
+  
+  const flows: CashFlow[] = events.map(e => ({
+    date: e.date,
+    amount: e.isBuy ? -e.amount : e.amount
+  }));
+
+  if (terminalValue > 0) {
+    flows.push({ date: asOf, amount: terminalValue });
+  }
+
+  return xirr(flows);
 }
 
 export async function fetchBenchmarkSeries(
