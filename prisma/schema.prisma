@@ -37,7 +37,21 @@ model User {
   assets            Asset[]
   transactions Transaction[]
   importFiles  ImportFile[]
+  watchlists   WatchlistItem[]
+  pinnedStrategies PinnedStrategy[]
+  screenerSignals ScreenerSignal[]
   createdAt    DateTime      @default(now())
+}
+
+model PinnedStrategy {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol       String
+  strategyName String
+  pinnedAt     DateTime @default(now())
+
+  @@unique([userId, symbol, strategyName])
 }
 
 model ImportFile {
@@ -90,4 +104,29 @@ model Transaction {
   createdAt          DateTime @default(now())
 
   @@unique([userId, tradeId])
+}
+
+model WatchlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol    String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, symbol])
+}
+
+model ScreenerSignal {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol      String
+  type        String   // BUY or SELL
+  rule        String   // e.g. "RSI_OVERSOLD", "SMA_GOLDEN_CROSS"
+  price       Float
+  date        DateTime
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([userId, symbol, date])
 }
