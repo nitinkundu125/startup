@@ -26,7 +26,7 @@ function renderCondition(cond: SingleStrategyParams): string {
     case 'OBV': return `Period: ${cond.period}`;
     case 'ADX': return `Period: ${cond.period}, Thresh: ${cond.strongThreshold}`;
     case 'CCI': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
-    case 'PSAR': return `Step: ${cond.step}, Max: ${cond.max}`;
+    case 'PSAR': return `Step: ${cond.step}, Max: ${cond.maxStep}`;
     case 'ICHIMOKU': return `Tenkan: ${cond.tenkan}, Kijun: ${cond.kijun}, SenkouB: ${cond.senkouB}`;
     default: return '';
   }
