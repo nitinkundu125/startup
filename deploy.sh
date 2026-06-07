@@ -37,9 +37,10 @@ ssh $SERVER << 'EOF'
   echo "Installing project dependencies..."
   npm install
 
-  # Generate Prisma client and build
-  echo "Generating Prisma Client..."
+  # Generate Prisma client and sync database
+  echo "Generating Prisma Client and syncing DB schema..."
   npx prisma generate
+  npx prisma db push
   
   echo "Building Next.js application..."
   npm run build
