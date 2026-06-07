@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Fragment, useMemo } from 'react';
+import { useState, Fragment, useMemo, useEffect } from 'react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Activity, Play, Zap, CheckCircle2, TrendingUp, Settings2, ShieldCheck, Globe, Plus, Pin } from 'lucide-react';
