@@ -143,6 +143,56 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
   }
 
+  useEffect(() => {
+    const fetchWatchlist = async () => {
+      try {
+        const res = await fetch('/api/watchlist');
+        const data = await res.json();
+        setWatchlist(data.watchlist || []);
+      } catch (err) {
+        console.error('Failed to load watchlist', err);
+      }
+    };
+    fetchWatchlist();
+    
+    // Load pinned strategies from backend
+    const fetchPinned = async () => {
+      try {
+        const res = await fetch('/api/backtest/pinned');
+        const data = await res.json();
+        if (data.success && data.pinned) {
+          setPinnedStrategies(data.pinned.map((p: any) => ({ symbol: p.symbol, strategy: p.strategyName })));
+        }
+      } catch (err) {
+        console.error('Failed to load pinned strategies', err);
+      }
+    };
+    fetchPinned();
+  }, []);
+
+  const handleTogglePin = async (symbol: string, strategy: string) => {
+    // Optimistic UI update
+    setPinnedStrategies(prev => {
+      const isPinned = prev.some(p => p.symbol === symbol && p.strategy === strategy);
+      if (isPinned) {
+        return prev.filter(p => !(p.symbol === symbol && p.strategy === strategy));
+      } else {
+        return [...prev, { symbol, strategy }];
+      }
+    });
+
+    // Backend sync
+    try {
+      await fetch('/api/backtest/pinned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, strategy })
+      });
+    } catch (err) {
+      console.error('Failed to sync pinned strategy', err);
+    }
+  };
+
   async function handleAddWatchlist() {
     if (!newWatchlistSymbol) return;
     setIsAddingWatchlist(true);
