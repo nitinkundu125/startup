@@ -321,7 +321,7 @@ export function CashFlowChart({ data }: { data: { month: string; invested: numbe
               dx={-4}
             />
             <Tooltip
-              formatter={(value: number, name: string) => [
+              formatter={(value: any, name: string) => [
                 formatINR(Math.abs(value)),
                 name === 'invested' ? 'Invested' : name === 'withdrawnNegative' ? 'Withdrawn' : 'Net Flow',
               ]}
