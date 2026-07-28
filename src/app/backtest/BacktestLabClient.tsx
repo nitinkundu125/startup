@@ -3,7 +3,7 @@
 import { useState, Fragment, useMemo, useEffect } from 'react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Activity, Play, Zap, CheckCircle2, TrendingUp, Settings2, ShieldCheck, Globe, Plus, Pin } from 'lucide-react';
+import { Activity, Play, Zap, CheckCircle2, TrendingUp, Settings2, ShieldCheck, Globe, Plus, Pin, Star, X } from 'lucide-react';
 import { DynamicBacktestResult, StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { OptimizerResult } from '@/lib/optimizer';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
@@ -32,16 +32,31 @@ function renderCondition(cond: SingleStrategyParams): string {
   }
 }
 
+import { useBacktestStore } from '@/lib/backtest-store';
+
 export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: WatchlistItem[] }) {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(initialWatchlist);
-  const [activeTab, setActiveTab] = useState<'custom' | 'optimizer' | 'batch'>('batch');
-  const [symbol, setSymbol] = useState(initialWatchlist[0]?.symbol || '');
+  
+  const {
+    activeTab, setActiveTab,
+    symbol, setSymbol,
+    stratType, setStratType,
+    customResult, setCustomResult,
+    optResults, setOptResults,
+    batchResults, setBatchResults, appendBatchResults,
+    selectedIndex, setSelectedIndex
+  } = useBacktestStore();
+
+  useEffect(() => {
+    if (!symbol && initialWatchlist[0]?.symbol) {
+      setSymbol(initialWatchlist[0].symbol);
+    }
+  }, [initialWatchlist, symbol, setSymbol]);
   
   // Expanded state for optimizer rows
   const [expandedOptCard, setExpandedOptCard] = useState<number | null>(null);
   
-  // Custom Builder State
-  const [stratType, setStratType] = useState<'RSI' | 'SMA' | 'EMA' | 'MACD' | 'BB' | 'STOCH' | 'ATR' | 'VWAP' | 'OBV' | 'ADX' | 'CCI' | 'PSAR' | 'ICHIMOKU'>('RSI');
+  // Custom Builder State (Inputs are kept local to avoid massive refactor of 20 variables, they aren't critical to persist like the scan results)
   const [rsiPeriod, setRsiPeriod] = useState(14);
   const [rsiOversold, setRsiOversold] = useState(30);
   const [rsiOverbought, setRsiOverbought] = useState(70);
@@ -94,8 +109,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
   // Batch Expand State
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState<string>('nifty50');
-  const [pinnedStrategies, setPinnedStrategies] = useState<{symbol: string, strategy: string}[]>([]);
+  const [pinnedStrategies, setPinnedStrategies] = useState<any[]>([]);
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [expandedTrades, setExpandedTrades] = useState<Record<number, any[]>>({});
   const [loadingTrades, setLoadingTrades] = useState<Record<number, boolean>>({});
@@ -110,15 +124,12 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const [batchSortBy, setBatchSortBy] = useState<'winRate' | 'signal'>('winRate');
 
   const [customLoading, setCustomLoading] = useState(false);
-  const [customResult, setCustomResult] = useState<DynamicBacktestResult | null>(null);
 
   // Optimizer State
   const [optLoading, setOptLoading] = useState(false);
-  const [optResults, setOptResults] = useState<OptimizerResult[] | null>(null);
 
   // Batch Scanner State
   const [batchLoading, setBatchLoading] = useState(false);
-  const [batchResults, setBatchResults] = useState<any[] | null>(null);
 
   const displayedResults = useMemo(() => {
     if (!batchResults) return [];
@@ -178,7 +189,16 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         const res = await fetch('/api/backtest/pinned');
         const data = await res.json();
         if (data.success && data.pinned) {
-          setPinnedStrategies(data.pinned.map((p: any) => ({ symbol: p.symbol, strategy: p.strategyName })));
+          setPinnedStrategies(data.pinned.map((p: any) => ({
+            id: p.id,
+            symbol: p.symbol,
+            strategy: p.strategyName,
+            lastSignal: p.lastSignal,
+            signalDate: p.signalDate,
+            isNewSignal: p.isNewSignal,
+            statsJson: p.statsJson,
+            lastUpdated: p.lastUpdated
+          })));
         }
       } catch (err) {
         console.error('Failed to load pinned strategies', err);
@@ -207,6 +227,50 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
       });
     } catch (err) {
       console.error('Failed to sync pinned strategy', err);
+    }
+  };
+
+  const [runningCron, setRunningCron] = useState(false);
+
+  const runDailyScript = async () => {
+    setRunningCron(true);
+    try {
+      const res = await fetch('/api/cron/run-pinned', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        // Refresh pinned strategies to get new signals
+        const res2 = await fetch('/api/backtest/pinned');
+        const data2 = await res2.json();
+        if (data2.success && data2.pinned) {
+          setPinnedStrategies(data2.pinned.map((p: any) => ({
+            id: p.id,
+            symbol: p.symbol,
+            strategy: p.strategyName,
+            lastSignal: p.lastSignal,
+            signalDate: p.signalDate,
+            isNewSignal: p.isNewSignal,
+            statsJson: p.statsJson,
+            lastUpdated: p.lastUpdated
+          })));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRunningCron(false);
+    }
+  };
+
+  const ackSignal = async (id: string) => {
+    setPinnedStrategies(prev => prev.map(p => p.id === id ? { ...p, isNewSignal: false } : p));
+    try {
+      await fetch('/api/backtest/pinned/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -339,7 +403,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           const data = await res.json();
           
           if (data.success) {
-            setBatchResults(prev => [...(prev || []), ...data.results]);
+            appendBatchResults(data.results);
           }
         } catch (chunkError) {
           console.error("Chunk failed to load:", chunk, chunkError);
@@ -393,7 +457,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-[1400px] mx-auto pb-12">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -424,6 +488,70 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           </button>
         </div>
       </div>
+
+      {pinnedStrategies.length > 0 && (
+        <Card className="bg-white border-slate-200 mb-8 overflow-hidden shadow-sm p-0">
+          <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+              Pinned Strategy Alerts
+            </h2>
+            <Button onClick={runDailyScript} disabled={runningCron} size="sm" variant="secondary" className="gap-2">
+              <Activity className={`h-4 w-4 ${runningCron ? 'animate-spin' : ''}`} />
+              {runningCron ? 'Scanning Live Prices...' : 'Run Daily Screener'}
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-white text-slate-500 font-medium border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-3">Symbol</th>
+                  <th className="px-4 py-3">Strategy</th>
+                  <th className="px-4 py-3">Live Signal</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {[...pinnedStrategies]
+                  .sort((a, b) => (b.isNewSignal ? 1 : 0) - (a.isNewSignal ? 1 : 0))
+                  .map((p) => (
+                  <tr key={p.id || `${p.symbol}-${p.strategy}`} className={`transition-colors ${p.isNewSignal ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-slate-50'}`}>
+                    <td className="px-4 py-3 font-bold text-slate-800">{p.symbol}</td>
+                    <td className="px-4 py-3 font-medium text-blue-600">{p.strategy}</td>
+                    <td className="px-4 py-3">
+                      {p.lastSignal ? (
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center justify-center font-bold px-2.5 py-1 rounded-full text-xs border ${p.lastSignal.includes('BUY') ? 'bg-green-100 text-green-700 border-green-200' : p.lastSignal.includes('SELL') ? 'bg-red-100 text-red-700 border-red-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                            {p.lastSignal}
+                          </span>
+                          {p.isNewSignal && (
+                            <span className="flex h-3 w-3 relative">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic text-xs">Run scanner to evaluate</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {p.isNewSignal && (
+                        <button onClick={() => ackSignal(p.id)} className="text-xs font-semibold text-slate-500 hover:text-slate-800 underline mr-4">
+                          Dismiss Alert
+                        </button>
+                      )}
+                      <button onClick={() => handleTogglePin(p.symbol, p.strategy)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {activeTab !== 'batch' && (
         <Card className="bg-slate-50 border-slate-200">
@@ -638,6 +766,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                         Win Rate {batchSortBy === 'winRate' ? '↓' : '↕'}
                       </th>
                       <th className="px-5 py-3 text-right">Avg Return</th>
+                      <th className="px-5 py-3 text-right">Max Drawdown</th>
                       <th className="px-5 py-3 text-right">Total Trades</th>
                       <th className="px-5 py-3 text-center">Action</th>
                     </tr>
@@ -673,6 +802,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                           </td>
                           <td className={`px-5 py-4 text-right font-bold ${res.averageReturn > 0 ? 'text-green-600' : 'text-red-500'}`}>
                             {res.averageReturn > 0 ? '+' : ''}{res.averageReturn.toFixed(2)}%
+                          </td>
+                          <td className="px-5 py-4 text-right font-bold text-red-500">
+                            {res.maxDrawdown ? res.maxDrawdown.toFixed(2) : '0.00'}%
                           </td>
                           <td className="px-5 py-4 text-right text-slate-500 font-medium">
                             {res.totalTrades}
@@ -711,6 +843,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                                             <th className="px-3 py-2">Exit Date</th>
                                             <th className="px-3 py-2 text-right">Exit Price</th>
                                             <th className="px-3 py-2 text-right">Return</th>
+                                            <th className="px-3 py-2 text-right">Max DD</th>
                                             <th className="px-3 py-2 text-right">Days Held</th>
                                           </tr>
                                         </thead>
@@ -724,13 +857,16 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                                               <td className={`px-3 py-2 text-right font-bold ${trade.returnPct > 0 ? 'text-green-600' : 'text-red-500'}`}>
                                                 {trade.returnPct > 0 ? '+' : ''}{trade.returnPct.toFixed(2)}%
                                               </td>
+                                              <td className="px-3 py-2 text-right font-medium text-red-500">
+                                                {trade.maxDrawdownPct ? trade.maxDrawdownPct.toFixed(2) : '0.00'}%
+                                              </td>
                                               <td className="px-3 py-2 text-right text-slate-500 font-medium">
                                                 {trade.exitDate ? Math.floor((new Date(trade.exitDate).getTime() - new Date(trade.entryDate).getTime()) / (1000 * 60 * 60 * 24)) : '-'}d
                                               </td>
                                             </tr>
                                           )) : (
                                             <tr>
-                                              <td colSpan={5} className="px-3 py-4 text-center text-slate-500">No trades recorded.</td>
+                                              <td colSpan={7} className="px-3 py-4 text-center text-slate-500">No trades recorded.</td>
                                             </tr>
                                           )}
                                         </tbody>
@@ -1020,6 +1156,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                     <p className="text-xs text-slate-500 font-medium mb-1">Avg Return / Trade</p>
                     <p className={`text-2xl font-bold ${customResult.averageReturn >= 0 ? 'text-green-600' : 'text-red-500'}`}>{customResult.averageReturn > 0 ? '+' : ''}{customResult.averageReturn.toFixed(1)}%</p>
                   </div>
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-xs text-slate-500 font-medium mb-1">Max Drawdown</p>
+                    <p className="text-2xl font-bold text-red-500">{customResult.maxDrawdown ? customResult.maxDrawdown.toFixed(1) : '0.0'}%</p>
+                  </div>
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm bg-gradient-to-br from-indigo-50 to-blue-50 border-blue-100">
                     <p className="text-xs text-blue-600 font-medium mb-1">Lifetime Gross Return</p>
                     <p className={`text-2xl font-bold ${customResult.totalReturn >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>{customResult.totalReturn > 0 ? '+' : ''}{customResult.totalReturn.toFixed(1)}%</p>
@@ -1036,6 +1176,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                           <th className="px-4 py-3">Entry Price</th>
                           <th className="px-4 py-3">Exit Date</th>
                           <th className="px-4 py-3">Exit Price</th>
+                          <th className="px-4 py-3 text-right">Max DD</th>
                           <th className="px-4 py-3 text-right">Days Held</th>
                           <th className="px-4 py-3 text-right">Profit %</th>
                         </tr>
@@ -1050,6 +1191,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                               <td className="px-4 py-3">₹{t.entryPrice.toFixed(2)}</td>
                               <td className="px-4 py-3">{new Date(t.exitDate).toLocaleDateString()}</td>
                               <td className="px-4 py-3">₹{t.exitPrice.toFixed(2)}</td>
+                              <td className="px-4 py-3 text-right text-red-500 font-medium">{t.maxDrawdownPct ? t.maxDrawdownPct.toFixed(2) : '0.00'}%</td>
                               <td className="px-4 py-3 text-right text-slate-500">{t.holdingPeriodDays}d</td>
                               <td className={`px-4 py-3 text-right font-semibold ${t.returnPct > 0 ? 'text-green-600' : 'text-red-500'}`}>
                                 {t.returnPct > 0 ? '+' : ''}{t.returnPct.toFixed(2)}%
@@ -1078,17 +1220,17 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
               </div>
               <h2 className="text-3xl font-extrabold tracking-tight">Compound Holy Grail Finder</h2>
               <div className="inline-flex items-center gap-2 bg-green-500/20 text-green-300 px-4 py-2 rounded-full font-bold text-sm border border-green-500/30">
-                <ShieldCheck className="h-4 w-4" /> Strict 70%+ Win Rate Baseline
+                <ShieldCheck className="h-4 w-4" /> Strict 67%+ Win Rate Baseline
               </div>
               <p className="text-indigo-200 leading-relaxed text-lg font-medium">
-                The engine will cross-pollinate hundreds of multiple indicators to find maximum confluence on <span className="font-bold text-white bg-indigo-800 px-2 py-1 rounded">{symbol || 'the stock'}</span>. All results below a 70% win rate will be destroyed. This may take 10-15 seconds.
+                The engine will cross-pollinate hundreds of multiple indicators to find maximum confluence on <span className="font-bold text-white bg-indigo-800 px-2 py-1 rounded">{symbol || 'the stock'}</span>. All results below a 67% win rate will be destroyed. This may take 10-15 seconds.
               </p>
               <Button 
                 onClick={handleRunOptimizer} 
                 disabled={optLoading || !symbol}
                 className="bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-amber-950 font-black px-8 py-6 text-lg w-full md:w-auto shadow-lg shadow-yellow-500/20 transition-all hover:scale-105"
               >
-                {optLoading ? <span className="flex items-center gap-3"><Activity className="h-6 w-6 animate-spin" /> Cross-Pollinating Matrices...</span> : "Find 70%+ Win Rate Strategies"}
+                {optLoading ? <span className="flex items-center gap-3"><Activity className="h-6 w-6 animate-spin" /> Cross-Pollinating Matrices...</span> : "Find 67%+ Win Rate Strategies"}
               </Button>
             </div>
           </Card>
@@ -1098,7 +1240,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
               <div className="p-5 border-b border-slate-100 bg-white flex justify-between items-center">
                 <div>
                   <h3 className="text-lg font-extrabold text-slate-800">Top 100 Compound Strategies for {symbol}</h3>
-                  <p className="text-sm text-slate-500 font-medium">Ranked by Average Return per Trade. Win Rate ≥ 70%.</p>
+                  <p className="text-sm text-slate-500 font-medium">Ranked by Average Return per Trade. Win Rate ≥ 67%.</p>
                 </div>
               </div>
               
@@ -1110,13 +1252,14 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                       <th className="px-5 py-4">Confluence Components (AND)</th>
                       <th className="px-5 py-4 text-center">Trades</th>
                       <th className="px-5 py-4 text-center">Win Rate</th>
+                      <th className="px-5 py-4 text-right">Max DD</th>
                       <th className="px-5 py-4 text-right">Avg Return</th>
                       <th className="px-5 py-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {optResults.length === 0 ? (
-                      <tr><td colSpan={6} className="text-center py-12 text-slate-400 font-medium">No compound strategies found with ≥ 70% win rate for this stock.</td></tr>
+                      <tr><td colSpan={6} className="text-center py-12 text-slate-400 font-medium">No compound strategies found with ≥ 67% win rate for this stock.</td></tr>
                     ) : (
                       optResults.map((res, idx) => {
                         const conditions = res.strategy.type === 'COMPOUND' ? res.strategy.conditions : [res.strategy];
@@ -1148,10 +1291,11 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                                   {res.stats.winRate.toFixed(1)}%
                                 </span>
                               </td>
-                              <td className="px-5 py-4 text-right">
-                                <span className={`font-bold text-lg ${res.stats.averageReturn > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                  {res.stats.averageReturn > 0 ? '+' : ''}{res.stats.averageReturn.toFixed(1)}%
-                                </span>
+                              <td className="px-5 py-4 text-right font-bold text-red-500">
+                                {res.stats.maxDrawdown ? res.stats.maxDrawdown.toFixed(2) : '0.00'}%
+                              </td>
+                              <td className="px-5 py-4 text-right font-bold text-green-600">
+                                +{res.stats.averageReturn.toFixed(2)}%
                               </td>
                               <td className="px-5 py-4 text-center">
                                 <button 
@@ -1166,13 +1310,14 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                             {/* Expandable Trade Ledger */}
                             {expandedOptCard === idx && (
                               <tr>
-                                <td colSpan={6} className="p-0 border-b border-slate-200">
+                                <td colSpan={7} className="p-0 border-b border-slate-200">
                                   <div className="bg-slate-900 border-x-4 border-yellow-400 p-0 max-h-80 overflow-y-auto">
                                     <table className="w-full text-xs text-left text-slate-300">
                                       <thead className="bg-slate-800 text-slate-400 font-semibold sticky top-0 uppercase tracking-wider text-[10px]">
                                         <tr>
                                           <th className="px-6 py-3">Entry Date</th>
                                           <th className="px-6 py-3">Exit Date</th>
+                                          <th className="px-6 py-3 text-right">Max DD</th>
                                           <th className="px-6 py-3 text-right">Days Held</th>
                                           <th className="px-6 py-3 text-right">Return %</th>
                                         </tr>
@@ -1182,7 +1327,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                                           <tr key={tIdx} className="hover:bg-slate-800 transition-colors">
                                             <td className="px-6 py-3">{new Date(t.entryDate).toLocaleDateString()}</td>
                                             <td className="px-6 py-3">{new Date(t.exitDate).toLocaleDateString()}</td>
-                                            <td className="px-6 py-3 text-right text-slate-500">{t.holdingPeriodDays}d</td>
+                                            <td className="px-6 py-3 text-right text-red-400 font-medium">{t.maxDrawdownPct ? t.maxDrawdownPct.toFixed(2) : '0.00'}%</td>
+                                            <td className="px-6 py-3 text-right text-slate-400">{t.holdingPeriodDays}d</td>
                                             <td className={`px-6 py-3 text-right font-bold ${t.returnPct > 0 ? 'text-green-400' : 'text-red-400'}`}>
                                               {t.returnPct > 0 ? '+' : ''}{t.returnPct.toFixed(2)}%
                                             </td>

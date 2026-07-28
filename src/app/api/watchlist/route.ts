@@ -3,6 +3,21 @@ import { requireValidUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 
+export async function GET(request: Request) {
+  const user = await requireValidUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  try {
+    const watchlist = await prisma.watchlistItem.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    return NextResponse.json({ watchlist });
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   const user = await requireValidUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

@@ -33,8 +33,8 @@ export async function runOptimizer(symbol: string): Promise<OptimizerResult[]> {
   for (const strat of MASTER_STRATEGY_LIBRARY) {
     const stats = runDynamicBacktest(strat, closes, highs, lows, volumes, dates);
     
-    // Strict 70% win rate filter and minimum trades filter
-    if (stats.totalTrades > 2 && stats.winRate >= 70) {
+    // Strict 67% win rate filter and minimum trades filter
+    if (stats.totalTrades > 2 && stats.winRate >= 67) {
       results.push({ strategy: strat, stats });
     }
   }

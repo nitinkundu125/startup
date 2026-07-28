@@ -7,6 +7,7 @@ export type TradeResult = {
   exitPrice: number;
   returnPct: number;
   holdingPeriodDays: number;
+  maxDrawdownPct: number;
 };
 
 export type DynamicBacktestResult = {
@@ -15,6 +16,7 @@ export type DynamicBacktestResult = {
   winRate: number;
   averageReturn: number;
   totalReturn: number;
+  maxDrawdown: number;
   trades: TradeResult[];
   currentSignal: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
   lastSignalDate: Date | null;
@@ -57,7 +59,8 @@ export function runDynamicBacktest(
   let entryDate: Date | null = null;
   let entryIndex = 0;
   let highestSinceEntry = 0; // For ATR trailing stop
-  
+  let lowestSinceEntry = 0; // For calculating maximum drawdown
+
   let currentSignal: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING' = 'WAITING';
   let lastSignalDate: Date | null = null;
 
@@ -265,6 +268,7 @@ export function runDynamicBacktest(
         entryDate = date;
         entryIndex = i;
         highestSinceEntry = price;
+        lowestSinceEntry = price; // Initialize to entry price
         if (i === closes.length - 1) {
           currentSignal = 'NEW_BUY';
           lastSignalDate = date;
@@ -280,6 +284,11 @@ export function runDynamicBacktest(
       if (price > highestSinceEntry) {
         highestSinceEntry = price;
       }
+      
+      // We use lows[i] because the stock could have dipped significantly intra-day before closing
+      if (lows[i] < lowestSinceEntry) {
+        lowestSinceEntry = lows[i];
+      }
 
       for (const cond of conditions) {
         if (evaluateSell(cond, i, strategy.type === 'COMPOUND')) {
@@ -292,6 +301,7 @@ export function runDynamicBacktest(
         inTrade = false;
         const returnPct = ((price - entryPrice) / entryPrice) * 100;
         const holdingPeriodDays = i - entryIndex;
+        const maxDrawdownPct = ((lowestSinceEntry - entryPrice) / entryPrice) * 100;
         
         trades.push({
           entryDate,
@@ -299,7 +309,8 @@ export function runDynamicBacktest(
           exitDate: date,
           exitPrice: price,
           returnPct,
-          holdingPeriodDays
+          holdingPeriodDays,
+          maxDrawdownPct
         });
         
         if (i === closes.length - 1) {
@@ -314,13 +325,24 @@ export function runDynamicBacktest(
   }
 
   if (trades.length === 0) {
-    return { totalTrades: 0, profitableTrades: 0, winRate: 0, averageReturn: 0, totalReturn: 0, trades: [], currentSignal, lastSignalDate };
+    return { totalTrades: 0, profitableTrades: 0, winRate: 0, averageReturn: 0, totalReturn: 0, maxDrawdown: 0, trades: [], currentSignal, lastSignalDate };
   }
 
-  const profitableTrades = trades.filter(t => t.returnPct > 0).length;
+  const profitableTrades = trades.filter(t => t.returnPct > 0 && t.maxDrawdownPct > -10).length;
   const winRate = (profitableTrades / trades.length) * 100;
-  const averageReturn = trades.reduce((acc, t) => acc + t.returnPct, 0) / trades.length;
-  const totalReturn = trades.reduce((acc, t) => acc + t.returnPct, 0);
+  const averageReturn = trades.reduce((acc, t) => {
+    // Severe drawdown penalty: if a trade was wildly underwater, cap its return calculation to -10%
+    const effectiveReturn = (t.returnPct > 0 && t.maxDrawdownPct <= -10) ? -10 : t.returnPct;
+    return acc + effectiveReturn;
+  }, 0) / trades.length;
+  
+  const totalReturn = trades.reduce((acc, t) => {
+    const effectiveReturn = (t.returnPct > 0 && t.maxDrawdownPct <= -10) ? -10 : t.returnPct;
+    return acc + effectiveReturn;
+  }, 0);
+  
+  // Find the worst (minimum) maxDrawdownPct across all trades. If it's a winning strategy, it might still have temporary negative drawdowns.
+  const maxDrawdown = Math.min(...trades.map(t => t.maxDrawdownPct));
 
   return {
     totalTrades: trades.length,
@@ -328,6 +350,7 @@ export function runDynamicBacktest(
     winRate,
     averageReturn,
     totalReturn,
+    maxDrawdown,
     trades,
     currentSignal,
     lastSignalDate
