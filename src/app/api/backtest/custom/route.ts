@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireValidUser } from '@/lib/auth';
-import { fetchYahooDailyCloses } from '@/lib/index-history';
-import { runDynamicBacktest, StrategyParams } from '@/lib/dynamic-backtester';
+import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
+import { runSplitBacktest, StrategyParams } from '@/lib/dynamic-backtester';
 
 export async function POST(request: Request) {
   const user = await requireValidUser();
@@ -18,20 +18,22 @@ export async function POST(request: Request) {
 
     const period1 = new Date('1990-01-01'); // Fetch all available lifetime data
 
-    const result = await fetchYahooDailyCloses(symbol, period1);
-    if (!result || result.length < 200) {
+    const rows = await fetchYahooDailyCloses(symbol, period1);
+    if (!rows || rows.length < 200) {
       return NextResponse.json({ error: 'Not enough data' }, { status: 400 });
     }
 
-    const closes = result.map((r: any) => r.close);
-    const highs = result.map((r: any) => r.high ?? r.close);
-    const lows = result.map((r: any) => r.low ?? r.close);
-    const volumes = result.map((r: any) => r.volume ?? 0);
-    const dates = result.map((r: any) => new Date(r.date));
+    const { closes, highs, lows, opens, volumes, dates } = toPriceSeries(rows);
+    const split = runSplitBacktest(strategy, closes, highs, lows, volumes, dates, opens);
 
-    const stats = runDynamicBacktest(strategy, closes, highs, lows, volumes, dates);
-    
-    return NextResponse.json({ success: true, stats });
+    return NextResponse.json({
+      success: true,
+      // `stats` stays the whole-history run for backwards compatibility.
+      stats: split.full,
+      inSample: split.inSample,
+      outOfSample: split.outOfSample,
+      splitDate: split.splitDate ? split.splitDate.toISOString() : null,
+    });
   } catch (error) {
     console.error('Custom Backtest Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

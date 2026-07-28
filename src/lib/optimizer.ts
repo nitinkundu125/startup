@@ -1,52 +1,103 @@
-import { fetchYahooDailyCloses } from '@/lib/index-history';
-import { runDynamicBacktest, StrategyParams, DynamicBacktestResult } from './dynamic-backtester';
+import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
+import {
+  runSplitBacktest,
+  StrategyParams,
+  DynamicBacktestResult,
+} from './dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from './strategy-library';
 
 export type OptimizerResult = {
   strategy: StrategyParams;
+  /** Whole-history stats. Display only — the selection was fitted on part of this. */
   stats: DynamicBacktestResult;
+  /** Selection window. The win-rate filter is applied to this. */
+  inSample: DynamicBacktestResult;
+  /** Held-back window. This is the number that actually means something. */
+  outOfSample: DynamicBacktestResult;
+  splitDate: string | null;
 };
 
-export async function runOptimizer(symbol: string): Promise<OptimizerResult[]> {
+export type OptimizerReport = {
+  results: OptimizerResult[];
+  /** How many strategies were tried — needed to read the results honestly. */
+  strategiesTested: number;
+  /** How many cleared the in-sample filter. */
+  strategiesPassed: number;
+  /** Of those, how many also stayed profitable out-of-sample. */
+  strategiesHeldUp: number;
+  splitDate: string | null;
+};
+
+/** In-sample bar a strategy must clear to be considered at all. */
+const MIN_IN_SAMPLE_TRADES = 3;
+const MIN_IN_SAMPLE_WIN_RATE = 67;
+/** A strategy "held up" if it stayed profitable on data it was not selected on. */
+const HELD_UP_MIN_WIN_RATE = 50;
+
+export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
   const period1 = new Date('1990-01-01'); // Fetch all available lifetime data
 
-  let result;
+  let rows;
   try {
-    result = await fetchYahooDailyCloses(symbol, period1);
-  } catch (error) {
+    rows = await fetchYahooDailyCloses(symbol, period1);
+  } catch {
     throw new Error('Failed to fetch historical data for backtesting.');
   }
 
-  if (!result || result.length < 200) {
+  if (!rows || rows.length < 200) {
     throw new Error('Not enough historical data (minimum 200 days required).');
   }
 
-  const closes = result.map((r: any) => r.close);
-  const highs = result.map((r: any) => r.high ?? r.close);
-  const lows = result.map((r: any) => r.low ?? r.close);
-  const volumes = result.map((r: any) => r.volume ?? 0);
-  const dates = result.map((r: any) => new Date(r.date));
+  const { closes, highs, lows, opens, volumes, dates } = toPriceSeries(rows);
 
   const results: OptimizerResult[] = [];
+  let strategiesPassed = 0;
+  let strategiesHeldUp = 0;
+  let splitDate: string | null = null;
 
-  // Evaluate all strategies in the Master Library
   for (const strat of MASTER_STRATEGY_LIBRARY) {
-    const stats = runDynamicBacktest(strat, closes, highs, lows, volumes, dates);
-    
-    // Strict 70% win rate filter and minimum trades filter
-    if (stats.totalTrades > 2 && stats.winRate >= 70) {
-      results.push({ strategy: strat, stats });
+    const split = runSplitBacktest(strat, closes, highs, lows, volumes, dates, opens);
+    if (split.splitDate) splitDate = split.splitDate.toISOString();
+
+    // Select on the training window ONLY. Selecting on full history is how you
+    // ship noise: with ~46 strategies against one price series, several will
+    // clear any win-rate threshold by chance alone.
+    const passed =
+      split.inSample.totalTrades >= MIN_IN_SAMPLE_TRADES &&
+      split.inSample.winRate >= MIN_IN_SAMPLE_WIN_RATE;
+    if (!passed) continue;
+
+    strategiesPassed++;
+    if (split.outOfSample.totalTrades > 0 && split.outOfSample.winRate >= HELD_UP_MIN_WIN_RATE) {
+      strategiesHeldUp++;
     }
+
+    results.push({
+      strategy: strat,
+      stats: split.full,
+      inSample: split.inSample,
+      outOfSample: split.outOfSample,
+      splitDate: split.splitDate ? split.splitDate.toISOString() : null,
+    });
   }
 
-  // Sort primarily by Average Return, then Win Rate
+  // Rank by out-of-sample performance, not by what we fitted on. Strategies with
+  // no out-of-sample trades cannot be judged, so they sort last rather than
+  // masquerading as winners.
+  const oosRank = (r: OptimizerResult) =>
+    r.outOfSample.totalTrades > 0 ? r.outOfSample.averageReturn : -Infinity;
+
   results.sort((a, b) => {
-    if (b.stats.averageReturn !== a.stats.averageReturn) {
-      return b.stats.averageReturn - a.stats.averageReturn;
-    }
-    return b.stats.winRate - a.stats.winRate;
+    const d = oosRank(b) - oosRank(a);
+    if (d !== 0) return d;
+    return b.outOfSample.winRate - a.outOfSample.winRate;
   });
 
-  // Return the top 100
-  return results.slice(0, 100);
+  return {
+    results: results.slice(0, 100),
+    strategiesTested: MASTER_STRATEGY_LIBRARY.length,
+    strategiesPassed,
+    strategiesHeldUp,
+    splitDate,
+  };
 }

@@ -167,10 +167,21 @@ function snapshotFromPositions(
 }
 
 export function buildPortfolioSummary(transactions: TxInput[]): PortfolioSummary {
+  // Same-date ordering: corporate actions resolve first (they are synthetic
+  // events anchored to the day), then real trades in their original order.
+  //
+  // BUY and SELL deliberately share a rank. Ranking SELL ahead of BUY broke
+  // same-day round trips — an intraday buy-then-sell was replayed as
+  // sell-then-buy, the sell hit a zero position and was silently clamped to 0 by
+  // sellLots, and the whole quantity stayed in the portfolio forever. Equal rank
+  // plus a stable sort preserves tradebook order, which is the only ordering
+  // signal available when orderExecutionTime is absent.
+  const order: Record<string, number> = {
+    DIVIDEND: 0, SPLIT: 1, BONUS: 2, DEMAT: 3, CA_BUY: 3, SELL: 4, BUY: 4,
+  };
   const sorted = [...transactions].sort((a, b) => {
     const t = a.date.getTime() - b.date.getTime();
     if (t !== 0) return t;
-    const order: Record<string, number> = { DIVIDEND: 0, SPLIT: 1, BONUS: 2, DEMAT: 3, CA_BUY: 3, SELL: 4, BUY: 5 };
     const oa = order[a.type.toUpperCase()] ?? 99;
     const ob = order[b.type.toUpperCase()] ?? 99;
     return oa - ob;

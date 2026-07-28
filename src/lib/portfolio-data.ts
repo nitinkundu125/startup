@@ -115,7 +115,15 @@ export async function getPortfolioSummaryForUser(
       ...(assetClass ? { asset: { assetClass } } : {})
     },
     include: { asset: true },
-    orderBy: { date: 'asc' },
+    // Deterministic replay order. Sorting on `date` alone left same-day rows in
+    // whatever order the DB returned, so an intraday buy/sell pair could replay
+    // backwards and silently strand the position. orderExecutionTime is the real
+    // intraday clock; createdAt preserves import order when it is null.
+    orderBy: [
+      { date: 'asc' },
+      { orderExecutionTime: 'asc' },
+      { createdAt: 'asc' },
+    ],
   });
 
   const ltpSnapshot = await getLtpSnapshotForUser(userId);

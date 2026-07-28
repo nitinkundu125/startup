@@ -51,6 +51,13 @@ model PinnedStrategy {
   strategyName String
   pinnedAt     DateTime @default(now())
 
+  // Signal tracking
+  lastSignal   String?  // BUY, SELL, HOLD
+  signalDate   DateTime?
+  isNewSignal  Boolean  @default(false)
+  statsJson    String?  // Cache for winRate, averageReturn, totalTrades, etc.
+  lastUpdated  DateTime?
+
   @@unique([userId, symbol, strategyName])
 }
 
@@ -129,4 +136,14 @@ model ScreenerSignal {
   createdAt   DateTime @default(now())
 
   @@index([userId, symbol, date])
+}
+
+model ScanCache {
+  id        String   @id @default(uuid())
+  symbol    String
+  dateKey   String   // "YYYY-MM-DD" representing the date the scan was run
+  results   String   // JSON string of the BatchOptimizerResult array
+  createdAt DateTime @default(now())
+
+  @@unique([symbol, dateKey])
 }

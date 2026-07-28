@@ -15,7 +15,7 @@ function createNamedStrategy(name: string, conditions: any[]): CompoundStrategyP
 [10, 14, 21].forEach(period => {
   [20, 25, 30].forEach(oversold => {
     MASTER_STRATEGY_LIBRARY.push(createNamedStrategy(
-      `Pure RSI Reversion (${period})`,
+      `Pure RSI Reversion (${period}, ${oversold})`,
       [{ type: 'RSI', period, oversold, overbought: 100 - oversold }]
     ));
   });
@@ -56,7 +56,7 @@ smaPairs.forEach(([fast, slow]) => {
 [14, 21].forEach(period => {
   [20, 30].forEach(oversold => {
     MASTER_STRATEGY_LIBRARY.push(createNamedStrategy(
-      `Stochastic Reversion (${period})`,
+      `Stochastic Reversion (${period}, ${oversold})`,
       [{ type: 'STOCH', period, smoothK: 3, smoothD: 3, oversold, overbought: 100 - oversold }]
     ));
   });

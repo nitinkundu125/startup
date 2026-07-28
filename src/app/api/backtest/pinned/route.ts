@@ -9,7 +9,16 @@ export async function GET() {
   try {
     const pinned = await prisma.pinnedStrategy.findMany({
       where: { userId: user.id },
-      select: { symbol: true, strategyName: true }
+      select: { 
+        id: true,
+        symbol: true, 
+        strategyName: true,
+        lastSignal: true,
+        signalDate: true,
+        isNewSignal: true,
+        statsJson: true,
+        lastUpdated: true
+      }
     });
 
     return NextResponse.json({ success: true, pinned });
