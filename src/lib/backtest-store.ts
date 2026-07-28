@@ -48,6 +48,8 @@ export const useBacktestStore = create<BacktestState>((set) => ({
     batchResults: [...(state.batchResults || []), ...results] 
   })),
 
-  selectedIndex: 'nifty50',
+  // Watchlist is the default target now that it shares one dropdown with the
+  // indices — scanning what you actually follow is the common case.
+  selectedIndex: 'watchlist',
   setSelectedIndex: (selectedIndex) => set({ selectedIndex }),
 }));

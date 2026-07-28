@@ -3,9 +3,8 @@
 import { useState, Fragment, useMemo, useEffect } from 'react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Activity, Play, Zap, CheckCircle2, TrendingUp, Settings2, ShieldCheck, Globe, Plus, Pin, Star, X } from 'lucide-react';
-import { DynamicBacktestResult, StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
-import type { OptimizerResult } from '@/lib/optimizer';
+import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, Pin, Star, X } from 'lucide-react';
+import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
@@ -144,7 +143,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
     // Rank on the held-back window, never on the fitted one. Validated strategies
     // outrank unvalidated ones regardless of how good the fitted numbers look.
-    const byOutOfSample = (a: any, b: any) => {
+    type BatchRow = { heldUp?: boolean; oosTotalTrades?: number; oosWinRate?: number; oosAverageReturn?: number };
+    const byOutOfSample = (a: BatchRow, b: BatchRow) => {
       const aHeld = a.heldUp ? 1 : 0;
       const bHeld = b.heldUp ? 1 : 0;
       if (aHeld !== bHeld) return bHeld - aHeld;
@@ -638,42 +638,41 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 </h2>
                 <p className="text-sm text-slate-500">Run the entire Master Strategy Library simultaneously against all {watchlist.length} stocks in your Watchlist.</p>
               </div>
-              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                <Button onClick={() => handleRunBatch(watchlist.map(w => w.symbol))} disabled={batchLoading || watchlist.length === 0} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md">
-                  {batchLoading ? <span className="flex items-center gap-2"><Activity className="h-4 w-4 animate-spin" /> Scanning...</span> : <span className="flex items-center gap-2"><Zap className="h-4 w-4" /> Scan Watchlist</span>}
+              {/* One dropdown, one button. "Scan Watchlist" and "Scan Index"
+                  were two buttons doing the same thing against different symbol
+                  lists — the watchlist is now just another entry in the list. */}
+              <div className="flex shadow-sm rounded-md w-full md:w-auto">
+                <select
+                  value={selectedIndex}
+                  onChange={(e) => setSelectedIndex(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm focus:outline-none border border-r-0 border-slate-300 bg-white text-slate-700 font-medium rounded-l-md"
+                  disabled={batchLoading}
+                >
+                  <option value="watchlist">My Watchlist ({watchlist.length})</option>
+                  <option value="pinned">Pinned Symbols</option>
+                  <option value="nifty50">Nifty 50</option>
+                  <option value="nifty100">Nifty 100</option>
+                  <option value="midcap150">Midcap 150</option>
+                  <option value="smallcap250">Smallcap 250</option>
+                  <option value="nifty500">Nifty 500 (All)</option>
+                </select>
+                <Button
+                  onClick={() => {
+                    if (selectedIndex === 'watchlist') handleRunBatch(watchlist.map((w) => w.symbol));
+                    else if (selectedIndex === 'pinned') handleRunBatch(Array.from(new Set(pinnedStrategies.map((p) => p.symbol))));
+                    else if (selectedIndex === 'nifty50') handleRunBatch(NIFTY_50_SYMBOLS);
+                    else if (selectedIndex === 'nifty100') handleRunBatch(NIFTY_100_SYMBOLS);
+                    else if (selectedIndex === 'midcap150') handleRunBatch(NIFTY_MIDCAP_150_SYMBOLS);
+                    else if (selectedIndex === 'smallcap250') handleRunBatch(NIFTY_SMALLCAP_250_SYMBOLS);
+                    else handleRunBatch(NIFTY_500_SYMBOLS);
+                  }}
+                  disabled={batchLoading || (selectedIndex === 'watchlist' && watchlist.length === 0)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white border-none rounded-l-none rounded-r-md px-5 whitespace-nowrap"
+                >
+                  {batchLoading
+                    ? <span className="flex items-center gap-2"><Activity className="h-4 w-4 animate-spin" /> Scanning…</span>
+                    : <span className="flex items-center gap-2"><Zap className="h-4 w-4" /> Scan</span>}
                 </Button>
-                
-                <div className="flex shadow-md rounded-md">
-                  <select 
-                    value={selectedIndex}
-                    onChange={(e) => setSelectedIndex(e.target.value)}
-                    className="px-3 py-2 text-sm focus:outline-none border border-r-0 border-slate-300 bg-white text-slate-700 font-medium rounded-l-md"
-                    disabled={batchLoading}
-                  >
-                    <option value="pinned">Pinned Symbols</option>
-                    <option value="nifty50">Nifty 50</option>
-                    <option value="nifty100">Nifty 100</option>
-                    <option value="midcap150">Midcap 150</option>
-                    <option value="smallcap250">Smallcap 250</option>
-                    <option value="nifty500">Nifty 500 (All)</option>
-                  </select>
-                  <Button 
-                    onClick={() => {
-                      if (selectedIndex === 'pinned') {
-                        const uniqueSymbols = Array.from(new Set(pinnedStrategies.map(p => p.symbol)));
-                        handleRunBatch(uniqueSymbols);
-                      } else if (selectedIndex === 'nifty50') handleRunBatch(NIFTY_50_SYMBOLS);
-                      else if (selectedIndex === 'nifty100') handleRunBatch(NIFTY_100_SYMBOLS);
-                      else if (selectedIndex === 'midcap150') handleRunBatch(NIFTY_MIDCAP_150_SYMBOLS);
-                      else if (selectedIndex === 'smallcap250') handleRunBatch(NIFTY_SMALLCAP_250_SYMBOLS);
-                      else handleRunBatch(NIFTY_500_SYMBOLS);
-                    }} 
-                    disabled={batchLoading} 
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-l-none rounded-r-md px-4"
-                  >
-                    {batchLoading ? <span className="flex items-center"><Activity className="h-4 w-4 animate-spin mr-2" /> Scanning...</span> : <span className="flex items-center"><Globe className="h-4 w-4 mr-2" /> Scan Index</span>}
-                  </Button>
-                </div>
               </div>
             </div>
             <div className="flex flex-col md:flex-row gap-6 w-full">
@@ -701,20 +700,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 </div>
               </div>
 
-              {/* Sort Controls */}
-              <div className="w-full md:w-1/3 ml-auto flex flex-col gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Sort Results By</label>
-                  <select
-                    value={batchSortBy}
-                    onChange={(e) => setBatchSortBy(e.target.value as 'winRate' | 'signal')}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="winRate">Highest Win Rate</option>
-                    <option value="signal">Live Signal (Buys First)</option>
-                  </select>
-                </div>
-                
+              {/* Sort dropdown removed — the "Live Signal" and "Win Rate"
+                  column headers are already click-to-sort and drive the same
+                  state, so this was a second control for one setting. */}
+              <div className="w-full md:w-1/3 ml-auto flex flex-col gap-3 justify-end">
                 <label className="flex items-center gap-2 cursor-pointer mt-1">
                   <input 
                     type="checkbox" 
@@ -955,23 +944,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         </Card>
       )}
 
-      {/* TABS (Hide on Batch) */}
-      {activeTab !== 'batch' && (
-        <div className="flex gap-4 border-b border-slate-200">
-          <button
-            onClick={() => setActiveTab('custom')}
-            className={`pb-3 px-4 font-semibold transition-colors ${activeTab === 'custom' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <span className="flex items-center gap-2"><Settings2 className="h-4 w-4" /> Custom Builder</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('optimizer')}
-            className={`pb-3 px-4 font-semibold transition-colors ${activeTab === 'optimizer' ? 'border-b-2 border-yellow-500 text-yellow-600' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <span className="flex items-center gap-2"><Zap className="h-4 w-4" /> Confluence Auto-Optimizer</span>
-          </button>
-        </div>
-      )}
+      {/* Second tab bar removed — the header tabs already switch between all
+          three views, and this rendered two of them again a few hundred pixels
+          lower with different styling. */}
 
       {activeTab === 'custom' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

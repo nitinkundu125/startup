@@ -451,3 +451,253 @@ export function calculateIchimoku(highs: number[], lows: number[], closes: numbe
 
   return { tenkan, kijun, senkouA: shift(rawSenkouA), senkouB: shift(rawSenkouB) };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Positional / long-term indicators
+//
+// The block above is largely oscillators built for short holding periods. What
+// follows is the toolkit long-term investors actually reach for: trend regime,
+// breakout levels, distance from highs, and accumulation. All NaN-safe in the
+// same way as everything else here — a warm-up gap must never poison a series.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Weighted moving average — recent bars weighted linearly higher. Coppock needs it. */
+export function calculateWMA(data: number[], period: number): number[] {
+  const out: number[] = new Array(data.length).fill(NaN);
+  const denom = (period * (period + 1)) / 2;
+  for (let i = period - 1; i < data.length; i++) {
+    let sum = 0;
+    let ok = true;
+    for (let j = 0; j < period; j++) {
+      const v = data[i - j];
+      if (!Number.isFinite(v)) { ok = false; break; }
+      sum += v * (period - j);
+    }
+    if (ok) out[i] = sum / denom;
+  }
+  return out;
+}
+
+/** Highest high over the trailing `period` bars (inclusive). */
+export function rollingHigh(highs: number[], period: number): number[] {
+  const out: number[] = new Array(highs.length).fill(NaN);
+  for (let i = 0; i < highs.length; i++) {
+    if (i < period - 1) continue;
+    let h = -Infinity;
+    for (let j = 0; j < period; j++) if (highs[i - j] > h) h = highs[i - j];
+    out[i] = h;
+  }
+  return out;
+}
+
+/** Lowest low over the trailing `period` bars (inclusive). */
+export function rollingLow(lows: number[], period: number): number[] {
+  const out: number[] = new Array(lows.length).fill(NaN);
+  for (let i = 0; i < lows.length; i++) {
+    if (i < period - 1) continue;
+    let l = Infinity;
+    for (let j = 0; j < period; j++) if (lows[i - j] < l) l = lows[i - j];
+    out[i] = l;
+  }
+  return out;
+}
+
+/** Running all-time high to date. Never looks forward. */
+export function allTimeHigh(highs: number[]): number[] {
+  const out: number[] = new Array(highs.length).fill(NaN);
+  let peak = -Infinity;
+  for (let i = 0; i < highs.length; i++) {
+    if (highs[i] > peak) peak = highs[i];
+    out[i] = peak;
+  }
+  return out;
+}
+
+/** Percent below the running all-time high. 0 = at highs, -30 = 30% off. */
+export function drawdownFromHigh(closes: number[], highs: number[]): number[] {
+  const ath = allTimeHigh(highs);
+  return closes.map((c, i) =>
+    Number.isFinite(ath[i]) && ath[i] > 0 ? ((c - ath[i]) / ath[i]) * 100 : NaN
+  );
+}
+
+/**
+ * Supertrend — ATR bands that flip with trend. The most-used indicator in Indian
+ * retail trading and, on weekly bars, a genuinely good positional filter.
+ * Returns the line plus the direction (1 = uptrend, -1 = downtrend).
+ */
+export function calculateSupertrend(
+  highs: number[], lows: number[], closes: number[], period = 10, multiplier = 3
+): { supertrend: number[]; direction: number[] } {
+  const atr = calculateATR(highs, lows, closes, period);
+  const supertrend: number[] = new Array(closes.length).fill(NaN);
+  const direction: number[] = new Array(closes.length).fill(NaN);
+
+  let finalUpper = NaN;
+  let finalLower = NaN;
+  let trendUp = true;
+
+  for (let i = 0; i < closes.length; i++) {
+    if (!Number.isFinite(atr[i])) continue;
+    const mid = (highs[i] + lows[i]) / 2;
+    const basicUpper = mid + multiplier * atr[i];
+    const basicLower = mid - multiplier * atr[i];
+
+    // Bands only tighten while the trend holds; they reset when price breaks through.
+    finalUpper =
+      !Number.isFinite(finalUpper) || basicUpper < finalUpper || closes[i - 1] > finalUpper
+        ? basicUpper : finalUpper;
+    finalLower =
+      !Number.isFinite(finalLower) || basicLower > finalLower || closes[i - 1] < finalLower
+        ? basicLower : finalLower;
+
+    if (closes[i] > finalUpper) trendUp = true;
+    else if (closes[i] < finalLower) trendUp = false;
+
+    direction[i] = trendUp ? 1 : -1;
+    supertrend[i] = trendUp ? finalLower : finalUpper;
+  }
+  return { supertrend, direction };
+}
+
+/** Donchian channel — the Turtle breakout system. 20/55 are the classic settings. */
+export function calculateDonchian(highs: number[], lows: number[], period = 20) {
+  const upper = rollingHigh(highs, period);
+  const lower = rollingLow(lows, period);
+  const middle = upper.map((u, i) =>
+    Number.isFinite(u) && Number.isFinite(lower[i]) ? (u + lower[i]) / 2 : NaN
+  );
+  return { upper, lower, middle };
+}
+
+/** Keltner channel — EMA centre with ATR bands. Pairs with Bollinger for squeezes. */
+export function calculateKeltner(
+  highs: number[], lows: number[], closes: number[], period = 20, multiplier = 2
+) {
+  const middle = calculateEMA(closes, period);
+  const atr = calculateATR(highs, lows, closes, period);
+  const upper = middle.map((m, i) => (Number.isFinite(m) && Number.isFinite(atr[i]) ? m + multiplier * atr[i] : NaN));
+  const lower = middle.map((m, i) => (Number.isFinite(m) && Number.isFinite(atr[i]) ? m - multiplier * atr[i] : NaN));
+  return { middle, upper, lower };
+}
+
+/** Williams %R — inverted stochastic. -100 oversold, 0 overbought. */
+export function calculateWilliamsR(
+  highs: number[], lows: number[], closes: number[], period = 14
+): number[] {
+  const hh = rollingHigh(highs, period);
+  const ll = rollingLow(lows, period);
+  return closes.map((c, i) => {
+    if (!Number.isFinite(hh[i]) || !Number.isFinite(ll[i]) || hh[i] === ll[i]) return NaN;
+    return ((hh[i] - c) / (hh[i] - ll[i])) * -100;
+  });
+}
+
+/** Money Flow Index — RSI weighted by volume. Detects accumulation, not just price. */
+export function calculateMFI(
+  highs: number[], lows: number[], closes: number[], volumes: number[], period = 14
+): number[] {
+  const out: number[] = new Array(closes.length).fill(NaN);
+  const tp = closes.map((c, i) => (highs[i] + lows[i] + c) / 3);
+  for (let i = period; i < closes.length; i++) {
+    let pos = 0;
+    let neg = 0;
+    for (let j = 0; j < period; j++) {
+      const k = i - j;
+      const flow = tp[k] * volumes[k];
+      if (tp[k] > tp[k - 1]) pos += flow;
+      else if (tp[k] < tp[k - 1]) neg += flow;
+    }
+    out[i] = neg === 0 ? 100 : 100 - 100 / (1 + pos / neg);
+  }
+  return out;
+}
+
+/** Rate of change, %. The raw momentum measure. */
+export function calculateROC(data: number[], period = 12): number[] {
+  return data.map((v, i) =>
+    i < period || !Number.isFinite(data[i - period]) || data[i - period] === 0
+      ? NaN
+      : ((v - data[i - period]) / data[i - period]) * 100
+  );
+}
+
+/** Aroon — how recently the period high/low occurred. Measures trend freshness. */
+export function calculateAroon(highs: number[], lows: number[], period = 25) {
+  const up: number[] = new Array(highs.length).fill(NaN);
+  const down: number[] = new Array(highs.length).fill(NaN);
+  for (let i = period; i < highs.length; i++) {
+    let hi = -Infinity, lo = Infinity, hIdx = i, lIdx = i;
+    for (let j = 0; j <= period; j++) {
+      if (highs[i - j] > hi) { hi = highs[i - j]; hIdx = i - j; }
+      if (lows[i - j] < lo) { lo = lows[i - j]; lIdx = i - j; }
+    }
+    up[i] = ((period - (i - hIdx)) / period) * 100;
+    down[i] = ((period - (i - lIdx)) / period) * 100;
+  }
+  return { up, down };
+}
+
+/** Chaikin Money Flow — buying vs selling pressure inside each bar. */
+export function calculateCMF(
+  highs: number[], lows: number[], closes: number[], volumes: number[], period = 20
+): number[] {
+  const mfv = closes.map((c, i) => {
+    const range = highs[i] - lows[i];
+    if (range === 0) return 0;
+    return (((c - lows[i]) - (highs[i] - c)) / range) * volumes[i];
+  });
+  const out: number[] = new Array(closes.length).fill(NaN);
+  for (let i = period - 1; i < closes.length; i++) {
+    let sumMfv = 0, sumVol = 0;
+    for (let j = 0; j < period; j++) { sumMfv += mfv[i - j]; sumVol += volumes[i - j]; }
+    out[i] = sumVol === 0 ? 0 : sumMfv / sumVol;
+  }
+  return out;
+}
+
+/**
+ * Coppock Curve — built by Edwin Coppock specifically to time long-term bottoms,
+ * on MONTHLY data. Fires a handful of times a decade. Buy when it turns up from
+ * below zero.
+ */
+export function calculateCoppock(closes: number[], roc1 = 14, roc2 = 11, wma = 10): number[] {
+  const a = calculateROC(closes, roc1);
+  const b = calculateROC(closes, roc2);
+  const sum = a.map((v, i) => (Number.isFinite(v) && Number.isFinite(b[i]) ? v + b[i] : NaN));
+  return calculateWMA(sum, wma);
+}
+
+/**
+ * Moving-average ribbon alignment — Minervini's trend template in one boolean.
+ * 1 when the MAs stack in ascending order (10 > 20 > 50 > 200) and price sits on
+ * top, -1 when fully inverted, 0 otherwise.
+ */
+export function calculateRibbon(closes: number[], periods: number[] = [10, 20, 50, 200]): number[] {
+  const mas = periods.map((p) => calculateSMA(closes, p));
+  return closes.map((c, i) => {
+    if (mas.some((m) => !Number.isFinite(m[i]))) return NaN;
+    let asc = c > mas[0][i];
+    let desc = c < mas[0][i];
+    for (let k = 0; k < mas.length - 1; k++) {
+      if (!(mas[k][i] > mas[k + 1][i])) asc = false;
+      if (!(mas[k][i] < mas[k + 1][i])) desc = false;
+    }
+    return asc ? 1 : desc ? -1 : 0;
+  });
+}
+
+/** Slope of a series over `lookback` bars, in % — used for "200 MA is rising". */
+export function slopePct(data: number[], lookback = 20): number[] {
+  return data.map((v, i) =>
+    i < lookback || !Number.isFinite(v) || !Number.isFinite(data[i - lookback]) || data[i - lookback] === 0
+      ? NaN
+      : ((v - data[i - lookback]) / data[i - lookback]) * 100
+  );
+}
+
+/** Volume relative to its own average — 2.0 means twice the usual. */
+export function relativeVolume(volumes: number[], period = 20): number[] {
+  const avg = calculateSMA(volumes, period);
+  return volumes.map((v, i) => (Number.isFinite(avg[i]) && avg[i] > 0 ? v / avg[i] : NaN));
+}

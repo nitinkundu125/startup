@@ -1,4 +1,12 @@
-import { calculateRSI, calculateSMA, calculateMACD, calculateBollingerBands, calculateStochastic, calculateATR, calculateEMA, calculateVWAP, calculateOBV, calculateADX, calculateCCI, calculatePSAR, calculateIchimoku } from './indicators';
+import {
+  calculateRSI, calculateSMA, calculateMACD, calculateBollingerBands, calculateStochastic,
+  calculateATR, calculateEMA, calculateVWAP, calculateOBV, calculateADX, calculateCCI,
+  calculatePSAR, calculateIchimoku,
+  calculateSupertrend, calculateDonchian, calculateKeltner, calculateWilliamsR, calculateMFI,
+  calculateROC, calculateAroon, calculateCMF, calculateCoppock, calculateRibbon,
+  rollingHigh, rollingLow, drawdownFromHigh, slopePct, relativeVolume,
+} from './indicators';
+import { resample, type Timeframe } from './timeframe';
 
 export type TradeResult = {
   entryDate: Date;
@@ -52,12 +60,53 @@ export type CciParams = { type: 'CCI'; period: number; oversold: number; overbou
 export type PsarParams = { type: 'PSAR'; step: number; maxStep: number; };
 export type IchimokuParams = { type: 'ICHIMOKU'; tenkan: number; kijun: number; senkouB: number; }; // Buy when Price > Cloud
 
-export type SingleStrategyParams = RsiParams | SmaParams | EmaParams | MacdParams | BbParams | StochParams | AtrParams | VwapParams | ObvParams | AdxParams | CciParams | PsarParams | IchimokuParams;
+// ── Positional / long-term conditions ────────────────────────────────────────
+// The block above is short-horizon oscillators. These are what long-term
+// investors actually use: trend regime, breakout levels, distance from highs,
+// and accumulation.
+
+export type SupertrendParams = { type: 'SUPERTREND'; period: number; multiplier: number };
+/** Turtle-style breakout: buy the N-bar high, exit the N-bar low. */
+export type DonchianParams = { type: 'DONCHIAN'; period: number; exitPeriod?: number };
+export type KeltnerParams = { type: 'KELTNER'; period: number; multiplier: number };
+export type WilliamsRParams = { type: 'WILLIAMSR'; period: number; oversold: number; overbought: number };
+export type MfiParams = { type: 'MFI'; period: number; oversold: number; overbought: number };
+/** Absolute momentum: is the stock up more than `threshold` % over `period` bars. */
+export type RocParams = { type: 'ROC'; period: number; threshold: number };
+export type AroonParams = { type: 'AROON'; period: number; threshold: number };
+export type CmfParams = { type: 'CMF'; period: number; threshold: number };
+/** Coppock: long-term bottom finder. Buy as it turns up from below zero. */
+export type CoppockParams = { type: 'COPPOCK'; roc1: number; roc2: number; wma: number };
+/** MA ribbon stacked in order — Minervini's trend template as one boolean. */
+export type RibbonParams = { type: 'RIBBON'; periods: number[] };
+/** Price above a moving average that is itself rising. The core regime filter. */
+export type MaRegimeParams = { type: 'MA_REGIME'; period: number; requireRising?: boolean; slopeLookback?: number };
+/** Within `withinPct` of the trailing high — momentum, "winners keep winning". */
+export type High52wParams = { type: 'HIGH_52W'; lookback: number; withinPct: number };
+/** At least `minDrawdownPct` below the all-time high — "quality at a discount". */
+export type DrawdownParams = { type: 'DRAWDOWN'; minDrawdownPct: number };
+/** Volume at `multiple` x its own average — confirmation for breakouts. */
+export type VolumeParams = { type: 'VOLUME'; period: number; multiple: number };
+
+export type SingleStrategyParams =
+  | RsiParams | SmaParams | EmaParams | MacdParams | BbParams | StochParams | AtrParams
+  | VwapParams | ObvParams | AdxParams | CciParams | PsarParams | IchimokuParams
+  | SupertrendParams | DonchianParams | KeltnerParams | WilliamsRParams | MfiParams
+  | RocParams | AroonParams | CmfParams | CoppockParams | RibbonParams | MaRegimeParams
+  | High52wParams | DrawdownParams | VolumeParams;
 
 export type CompoundStrategyParams = {
   type: 'COMPOUND';
   name?: string; // Optional name for pre-loaded classical strategies
   conditions: SingleStrategyParams[];
+  /**
+   * Candle the strategy is evaluated on. Daily bars are aggregated before any
+   * indicator runs, so RSI(14) weekly is a genuinely different signal from
+   * RSI(14) daily rather than the same one smoothed.
+   */
+  timeframe?: Timeframe;
+  /** Where the idea comes from — shown in the UI so a call is attributable. */
+  source?: string;
 };
 
 export type StrategyParams = SingleStrategyParams | CompoundStrategyParams;
@@ -107,15 +156,34 @@ function lines(cache: IndicatorCache, key: string): Record<string, number[]> {
 
 export function runDynamicBacktest(
   strategy: StrategyParams,
-  closes: number[],
-  highs: number[],
-  lows: number[],
-  volumes: number[],
-  dates: Date[],
+  closesIn: number[],
+  highsIn: number[],
+  lowsIn: number[],
+  volumesIn: number[],
+  datesIn: Date[],
   /** Next-bar open prices used for fills. Falls back to close when absent. */
-  opens?: number[],
+  opensIn?: number[],
   oneWayCostPct: number = DEFAULT_ONE_WAY_COST_PCT
 ): DynamicBacktestResult {
+  // Aggregate to the strategy's timeframe BEFORE any indicator runs, so a weekly
+  // RSI is computed on weekly candles rather than being a smoothed daily one.
+  // Bar dates stay real trading days, so trade dates remain meaningful.
+  const tf: Timeframe = (strategy.type === 'COMPOUND' && strategy.timeframe) || 'daily';
+  const bars =
+    tf === 'daily'
+      ? { closes: closesIn, highs: highsIn, lows: lowsIn, opens: opensIn ?? closesIn, volumes: volumesIn, dates: datesIn }
+      : resample(
+          { closes: closesIn, highs: highsIn, lows: lowsIn, opens: opensIn ?? closesIn, volumes: volumesIn, dates: datesIn },
+          tf
+        );
+
+  const closes = bars.closes;
+  const highs = bars.highs;
+  const lows = bars.lows;
+  const volumes = bars.volumes;
+  const dates = bars.dates;
+  const opens = bars.opens;
+
   let inTrade = false;
   let entryPrice = 0;
   let entryDate: Date | null = null;
@@ -187,6 +255,57 @@ export function runDynamicBacktest(
     } else if (cond.type === 'ICHIMOKU') {
       const key = `ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`;
       if (!indicatorsData[key]) indicatorsData[key] = calculateIchimoku(highs, lows, closes, cond.tenkan, cond.kijun, cond.senkouB);
+    } else if (cond.type === 'SUPERTREND') {
+      const key = `ST_${cond.period}_${cond.multiplier}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateSupertrend(highs, lows, closes, cond.period, cond.multiplier);
+    } else if (cond.type === 'DONCHIAN') {
+      const key = `DON_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateDonchian(highs, lows, cond.period);
+      const ex = cond.exitPeriod ?? cond.period;
+      const exKey = `DON_${ex}`;
+      if (!indicatorsData[exKey]) indicatorsData[exKey] = calculateDonchian(highs, lows, ex);
+    } else if (cond.type === 'KELTNER') {
+      const key = `KC_${cond.period}_${cond.multiplier}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateKeltner(highs, lows, closes, cond.period, cond.multiplier);
+    } else if (cond.type === 'WILLIAMSR') {
+      const key = `WR_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateWilliamsR(highs, lows, closes, cond.period);
+    } else if (cond.type === 'MFI') {
+      const key = `MFI_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateMFI(highs, lows, closes, volumes, cond.period);
+    } else if (cond.type === 'ROC') {
+      const key = `ROC_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateROC(closes, cond.period);
+    } else if (cond.type === 'AROON') {
+      const key = `AROON_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateAroon(highs, lows, cond.period);
+    } else if (cond.type === 'CMF') {
+      const key = `CMF_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateCMF(highs, lows, closes, volumes, cond.period);
+    } else if (cond.type === 'COPPOCK') {
+      const key = `COP_${cond.roc1}_${cond.roc2}_${cond.wma}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateCoppock(closes, cond.roc1, cond.roc2, cond.wma);
+    } else if (cond.type === 'RIBBON') {
+      const key = `RIB_${cond.periods.join('_')}`;
+      if (!indicatorsData[key]) indicatorsData[key] = calculateRibbon(closes, cond.periods);
+    } else if (cond.type === 'MA_REGIME') {
+      const maKey = `SMA_${cond.period}`;
+      if (!indicatorsData[maKey]) indicatorsData[maKey] = calculateSMA(closes, cond.period);
+      const slKey = `SLOPE_${cond.period}_${cond.slopeLookback ?? 20}`;
+      if (!indicatorsData[slKey]) {
+        indicatorsData[slKey] = slopePct(series(indicatorsData, maKey), cond.slopeLookback ?? 20);
+      }
+    } else if (cond.type === 'HIGH_52W') {
+      const hKey = `RHIGH_${cond.lookback}`;
+      if (!indicatorsData[hKey]) indicatorsData[hKey] = rollingHigh(highs, cond.lookback);
+      const lKey = `RLOW_${cond.lookback}`;
+      if (!indicatorsData[lKey]) indicatorsData[lKey] = rollingLow(lows, cond.lookback);
+    } else if (cond.type === 'DRAWDOWN') {
+      const key = `DD`;
+      if (!indicatorsData[key]) indicatorsData[key] = drawdownFromHigh(closes, highs);
+    } else if (cond.type === 'VOLUME') {
+      const key = `RVOL_${cond.period}`;
+      if (!indicatorsData[key]) indicatorsData[key] = relativeVolume(volumes, cond.period);
     }
   }
 
@@ -224,6 +343,46 @@ export function runDynamicBacktest(
     } else if (cond.type === 'ICHIMOKU') {
       const ichi = lines(indicatorsData, `ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`);
       return price > ichi.senkouA[i] && price > ichi.senkouB[i];
+    } else if (cond.type === 'SUPERTREND') {
+      return lines(indicatorsData, `ST_${cond.period}_${cond.multiplier}`).direction[i] === 1;
+    } else if (cond.type === 'DONCHIAN') {
+      // Breakout of the prior N-bar high — compare to i-1 so the bar making the
+      // high does not count as breaking out of itself.
+      const d = lines(indicatorsData, `DON_${cond.period}`);
+      return Number.isFinite(d.upper[i - 1]) && price >= d.upper[i - 1];
+    } else if (cond.type === 'KELTNER') {
+      return price > lines(indicatorsData, `KC_${cond.period}_${cond.multiplier}`).upper[i];
+    } else if (cond.type === 'WILLIAMSR') {
+      return series(indicatorsData, `WR_${cond.period}`)[i] <= cond.oversold;
+    } else if (cond.type === 'MFI') {
+      return series(indicatorsData, `MFI_${cond.period}`)[i] <= cond.oversold;
+    } else if (cond.type === 'ROC') {
+      return series(indicatorsData, `ROC_${cond.period}`)[i] > cond.threshold;
+    } else if (cond.type === 'AROON') {
+      const a = lines(indicatorsData, `AROON_${cond.period}`);
+      return a.up[i] > cond.threshold && a.up[i] > a.down[i];
+    } else if (cond.type === 'CMF') {
+      return series(indicatorsData, `CMF_${cond.period}`)[i] > cond.threshold;
+    } else if (cond.type === 'COPPOCK') {
+      // Turning up from below zero is the actual Coppock buy signal.
+      const c = series(indicatorsData, `COP_${cond.roc1}_${cond.roc2}_${cond.wma}`);
+      return Number.isFinite(c[i]) && Number.isFinite(c[i - 1]) && c[i] < 0 && c[i] > c[i - 1];
+    } else if (cond.type === 'RIBBON') {
+      return series(indicatorsData, `RIB_${cond.periods.join('_')}`)[i] === 1;
+    } else if (cond.type === 'MA_REGIME') {
+      const ma = series(indicatorsData, `SMA_${cond.period}`)[i];
+      if (!Number.isFinite(ma) || price <= ma) return false;
+      if (cond.requireRising === false) return true;
+      return series(indicatorsData, `SLOPE_${cond.period}_${cond.slopeLookback ?? 20}`)[i] > 0;
+    } else if (cond.type === 'HIGH_52W') {
+      const hi = series(indicatorsData, `RHIGH_${cond.lookback}`)[i];
+      if (!Number.isFinite(hi) || hi <= 0) return false;
+      return ((hi - price) / hi) * 100 <= cond.withinPct;
+    } else if (cond.type === 'DRAWDOWN') {
+      // Negative scale: -30 is 30% off the high, so "at least 30% off" is <= -30.
+      return series(indicatorsData, 'DD')[i] <= -Math.abs(cond.minDrawdownPct);
+    } else if (cond.type === 'VOLUME') {
+      return series(indicatorsData, `RVOL_${cond.period}`)[i] >= cond.multiple;
     }
     return false;
   };
@@ -265,6 +424,48 @@ export function runDynamicBacktest(
     } else if (cond.type === 'ICHIMOKU') {
       const ichi = lines(indicatorsData, `ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`);
       return price < Math.min(ichi.senkouA[i], ichi.senkouB[i]);
+    } else if (cond.type === 'SUPERTREND') {
+      return lines(indicatorsData, `ST_${cond.period}_${cond.multiplier}`).direction[i] === -1;
+    } else if (cond.type === 'DONCHIAN') {
+      // Turtles exit on a shorter channel than they enter on (55 in, 20 out).
+      const ex = cond.exitPeriod ?? cond.period;
+      const d = lines(indicatorsData, `DON_${ex}`);
+      return Number.isFinite(d.lower[i - 1]) && price <= d.lower[i - 1];
+    } else if (cond.type === 'KELTNER') {
+      return price < lines(indicatorsData, `KC_${cond.period}_${cond.multiplier}`).middle[i];
+    } else if (cond.type === 'WILLIAMSR') {
+      return series(indicatorsData, `WR_${cond.period}`)[i] >= cond.overbought;
+    } else if (cond.type === 'MFI') {
+      return series(indicatorsData, `MFI_${cond.period}`)[i] >= cond.overbought;
+    } else if (cond.type === 'ROC') {
+      // Momentum gone: stop being positive.
+      return series(indicatorsData, `ROC_${cond.period}`)[i] < 0;
+    } else if (cond.type === 'AROON') {
+      const a = lines(indicatorsData, `AROON_${cond.period}`);
+      return a.down[i] > a.up[i];
+    } else if (cond.type === 'CMF') {
+      return series(indicatorsData, `CMF_${cond.period}`)[i] < 0;
+    } else if (cond.type === 'COPPOCK') {
+      const c = series(indicatorsData, `COP_${cond.roc1}_${cond.roc2}_${cond.wma}`);
+      return Number.isFinite(c[i]) && Number.isFinite(c[i - 1]) && c[i] > 0 && c[i] < c[i - 1];
+    } else if (cond.type === 'RIBBON') {
+      // Exit when the stack simply stops holding, not only when fully inverted —
+      // waiting for -1 on a long-term ribbon gives back most of the move.
+      return series(indicatorsData, `RIB_${cond.periods.join('_')}`)[i] !== 1;
+    } else if (cond.type === 'MA_REGIME') {
+      const ma = series(indicatorsData, `SMA_${cond.period}`)[i];
+      return Number.isFinite(ma) && price < ma;
+    } else if (cond.type === 'HIGH_52W') {
+      const hi = series(indicatorsData, `RHIGH_${cond.lookback}`)[i];
+      const lo = series(indicatorsData, `RLOW_${cond.lookback}`)[i];
+      if (!Number.isFinite(hi) || !Number.isFinite(lo) || hi === lo) return false;
+      // Fallen back into the bottom third of the range: momentum thesis is dead.
+      return (price - lo) / (hi - lo) < 0.33;
+    } else if (cond.type === 'DRAWDOWN') {
+      // Recovered to within 5% of the high — the discount thesis has played out.
+      return series(indicatorsData, 'DD')[i] >= -5;
+    } else if (cond.type === 'VOLUME') {
+      return false; // Volume confirms entries; it is never an exit on its own.
     }
     return false;
   };

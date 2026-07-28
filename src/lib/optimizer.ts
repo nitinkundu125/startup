@@ -59,19 +59,18 @@ export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
   let strategiesHeldUp = 0;
   let splitDate: string | null = null;
 
+  // Every strategy in the library is run and every result is returned. Nothing
+  // is filtered out.
+  //
+  // Showing the whole distribution is also the safer choice: cherry-picking only
+  // the strategies that cleared a bar is what makes a win rate misleading. If
+  // the user can see all 46 — the 30% ones next to the 80% ones — the number
+  // means what it appears to mean.
   for (const strat of MASTER_STRATEGY_LIBRARY) {
     const split = runSplitBacktest(strat, closes, highs, lows, volumes, dates, opens);
     if (split.splitDate) splitDate = split.splitDate.toISOString();
 
-    // Select on the training window ONLY. Selecting on full history is how you
-    // ship noise: with ~46 strategies against one price series, several will
-    // clear any win-rate threshold by chance alone.
-    const passed =
-      split.inSample.totalTrades >= MIN_IN_SAMPLE_TRADES &&
-      split.inSample.winRate >= MIN_IN_SAMPLE_WIN_RATE;
-    if (!passed) continue;
-
-    strategiesPassed++;
+    if (split.full.totalTrades > 0) strategiesPassed++;
     if (
       split.outOfSample.totalTrades >= MIN_OOS_TRADES &&
       split.outOfSample.winRate >= HELD_UP_MIN_WIN_RATE
@@ -88,22 +87,20 @@ export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
     });
   }
 
-  // Rank by out-of-sample performance, not by what we fitted on. Strategies
-  // whose held-back sample is too small to mean anything sort below every
-  // properly-validated one regardless of how flattering their numbers look.
-  const validated = (r: OptimizerResult) => r.outOfSample.totalTrades >= MIN_OOS_TRADES;
-
+  // Rank by win rate over the stock's full history — the number being displayed.
+  // Strategies that never triggered sort last; a 0-trade strategy has no win
+  // rate, and 0% would read as "it lost" rather than "it never fired".
   results.sort((a, b) => {
-    const av = validated(a);
-    const bv = validated(b);
-    if (av !== bv) return av ? -1 : 1;
-    if (!av) {
-      // Neither is validated — order by sample size so the least-thin is first.
-      return b.outOfSample.totalTrades - a.outOfSample.totalTrades;
+    const at = a.stats.totalTrades > 0;
+    const bt = b.stats.totalTrades > 0;
+    if (at !== bt) return at ? -1 : 1;
+    if (!at) return 0;
+    if (b.stats.winRate !== a.stats.winRate) return b.stats.winRate - a.stats.winRate;
+    if (b.stats.averageReturn !== a.stats.averageReturn) {
+      return b.stats.averageReturn - a.stats.averageReturn;
     }
-    const d = b.outOfSample.averageReturn - a.outOfSample.averageReturn;
-    if (d !== 0) return d;
-    return b.outOfSample.winRate - a.outOfSample.winRate;
+    // More trades behind the same win rate is the stronger result.
+    return b.stats.totalTrades - a.stats.totalTrades;
   });
 
   return {
