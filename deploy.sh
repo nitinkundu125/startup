@@ -56,16 +56,29 @@ ssh $SERVER << 'EOF'
 
 
   echo "Building Next.js application..."
-  npm run build
+  npm run build || { echo "!! Build failed. Leaving the running app untouched."; exit 1; }
 
   # Start or Restart with PM2
   echo "Starting application with PM2..."
-  pm2 stop algo-engine || true
+  # `pm2 stop` leaves the process registered, so every deploy used to append
+  # ANOTHER entry named algo-engine (five had accumulated, all stopped).
+  # `delete` removes the registration so exactly one entry survives.
+  pm2 delete algo-engine 2>/dev/null || true
   pm2 start npm --name "algo-engine" -- run start
-  
+
   # Ensure PM2 starts on boot
   pm2 save
-  pm2 startup
+  pm2 startup >/dev/null 2>&1 || true
+
+  # Report actual state rather than assuming success.
+  sleep 3
+  pm2 describe algo-engine | grep -E "status|restarts" || true
+  if ! pm2 describe algo-engine | grep -q "status.*online"; then
+    echo "!! algo-engine is NOT online. Recent logs:"
+    pm2 logs algo-engine --lines 30 --nostream || true
+    exit 1
+  fi
+  echo "algo-engine is online."
 EOF
 
 echo "==========================================="
