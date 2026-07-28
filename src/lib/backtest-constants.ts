@@ -34,27 +34,33 @@ export const MIN_IN_SAMPLE_WIN_RATE = 67;
 /**
  * How far back to pull history for a backtest.
  *
- * Previously every caller asked for everything since 1990. Combined with a scan
- * universe of TODAY's index members, that meant judging strategies over decades
- * in which the universe bore no resemblance to the current one — the further
- * back the window reaches, the more the survivorship bias compounds. A bounded
- * window keeps the universe roughly contemporaneous with the test.
+ * Default is 0 — every bar the stock has, back to listing. The request start is
+ * set well before any Indian listing, so the provider returns the full series
+ * from the IPO date and no truncation happens here.
  *
- * Override with BACKTEST_LOOKBACK_YEARS. Set it to 0 for genuinely all history,
- * accepting the bias that comes with it.
+ * The tradeoff, stated once so it is not forgotten: the scan universe is TODAY's
+ * index membership, so the further back the window reaches, the more
+ * survivorship bias compounds — you are testing decades in which the universe
+ * looked nothing like the current one. Full history buys more trades and
+ * tighter statistics at the cost of a rosier picture.
+ *
+ * Set BACKTEST_LOOKBACK_YEARS to a positive number to bound the window.
  */
 export function backtestLookbackYears(): number {
   const raw = process.env.BACKTEST_LOOKBACK_YEARS;
-  if (raw === undefined || raw.trim() === '') return 15;
+  if (raw === undefined || raw.trim() === '') return 0;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 15;
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return parsed;
 }
 
-/** Start date for history fetches. 0 lookback means "everything available". */
+/** Predates every Indian listing, so the provider returns from the IPO onward. */
+const INCEPTION = new Date('1980-01-01');
+
+/** Start date for history fetches. 0 lookback means the stock's entire history. */
 export function backtestStartDate(): Date {
   const years = backtestLookbackYears();
-  if (years === 0) return new Date('1990-01-01');
+  if (years === 0) return INCEPTION;
   const d = new Date();
   d.setFullYear(d.getFullYear() - years);
   return d;
