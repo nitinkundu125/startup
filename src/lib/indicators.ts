@@ -14,29 +14,54 @@ export function calculateSMA(data: number[], period: number): number[] {
   return result;
 }
 
-export function calculateEMA(data: number[], period: number): number[] {
-  const result: number[] = [];
-  const multiplier = 2 / (period + 1);
-  let prevEma = NaN;
+/**
+ * Recursive smoother that tolerates leading/interior NaN.
+ *
+ * The previous EMA implementation seeded unconditionally and carried the seed
+ * forward, so a single NaN anywhere in the warm-up window poisoned the entire
+ * output (this is why ADX was NaN for every bar — its `dx` input is NaN-padded).
+ * Here a NaN resets the run; the smoother re-seeds from the next full window of
+ * finite values.
+ *
+ * `alphaFor` picks the weighting: EMA uses 2/(period+1), Wilder's RMA uses
+ * 1/period (Wilder(n) is equivalent to EMA(2n-1)).
+ */
+function recursiveSmooth(data: number[], period: number, alpha: number): number[] {
+  const out: number[] = new Array(data.length).fill(NaN);
+  if (period <= 0 || !Number.isFinite(alpha)) return out;
+
+  let runStart = -1;
+  let prev = NaN;
 
   for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) {
-      result.push(NaN);
-      if (i === period - 2) {
-        // Calculate SMA for the first EMA point
-        let sum = 0;
-        for (let j = 0; j < period - 1; j++) sum += data[i - j];
-        prevEma = (sum + data[i + 1]) / period; // this will be used in next iteration
-      }
-    } else if (i === period - 1) {
-      result.push(prevEma);
-    } else {
-      const ema = (data[i] - prevEma) * multiplier + prevEma;
-      result.push(ema);
-      prevEma = ema;
+    if (!Number.isFinite(data[i])) {
+      runStart = -1;
+      prev = NaN;
+      continue;
+    }
+    if (runStart < 0) runStart = i;
+
+    if (Number.isFinite(prev)) {
+      prev = (data[i] - prev) * alpha + prev;
+      out[i] = prev;
+    } else if (i - runStart + 1 >= period) {
+      // Seed with the SMA of the first complete window of finite values.
+      let sum = 0;
+      for (let j = 0; j < period; j++) sum += data[i - j];
+      prev = sum / period;
+      out[i] = prev;
     }
   }
-  return result;
+  return out;
+}
+
+export function calculateEMA(data: number[], period: number): number[] {
+  return recursiveSmooth(data, period, 2 / (period + 1));
+}
+
+/** Wilder's smoothing (RMA) — the correct basis for ATR, ADX and RSI. */
+export function wilderSmooth(data: number[], period: number): number[] {
+  return recursiveSmooth(data, period, 1 / period);
 }
 
 export function calculateRSI(data: number[], period: number = 14): number[] {
@@ -57,10 +82,20 @@ export function calculateRSI(data: number[], period: number = 14): number[] {
       else losses -= diff;
       
       if (i === period) {
-        let avgGain = gains / period;
-        let avgLoss = losses / period;
-        let rs = avgGain / avgLoss;
-        result.push(100 - (100 / (1 + rs)));
+        const avgGain = gains / period;
+        const avgLoss = losses / period;
+        // Carry the AVERAGES forward, not the running sums. The previous code
+        // left `gains`/`losses` holding sums, so the first Wilder step below
+        // seeded with values `period`x too large and under-weighted new bars
+        // until the recursion decayed it out — up to ~42 RSI points of error
+        // over the first ~100 bars.
+        gains = avgGain;
+        losses = avgLoss;
+        if (avgLoss === 0) {
+          result.push(avgGain === 0 ? 50 : 100);
+        } else {
+          result.push(100 - 100 / (1 + avgGain / avgLoss));
+        }
       } else {
         result.push(NaN);
       }
@@ -192,8 +227,8 @@ export function calculateATR(highs: number[], lows: number[], closes: number[], 
     tr.push(Math.max(highLow, highClose, lowClose));
   }
   
-  // ATR is generally an SMA or RMA of TR. We'll use SMA for simplicity here.
-  return calculateSMA(tr, period);
+  // Wilder's RMA, not SMA — matches what every charting platform calls "ATR".
+  return wilderSmooth(tr, period);
 }
 
 
@@ -254,10 +289,11 @@ export function calculateADX(highs: number[], lows: number[], closes: number[], 
     if (downMove > upMove && downMove > 0) minusDM.push(downMove); else minusDM.push(0);
   }
 
-  // Smooth using Wilder's Smoothing (approximated here with EMA for stability or simple sum for first)
-  const smoothedTR = calculateEMA(tr, period);
-  const smoothedPlusDM = calculateEMA(plusDM, period);
-  const smoothedMinusDM = calculateEMA(minusDM, period);
+  // Wilder's smoothing — EMA(period) is a different filter and made "ADX > 25"
+  // mean something other than it does on any chart.
+  const smoothedTR = wilderSmooth(tr, period);
+  const smoothedPlusDM = wilderSmooth(plusDM, period);
+  const smoothedMinusDM = wilderSmooth(minusDM, period);
 
   const plusDI = [];
   const minusDI = [];
@@ -275,7 +311,10 @@ export function calculateADX(highs: number[], lows: number[], closes: number[], 
     dx.push(100 * (Math.abs(pDI - mDI) / (pDI + mDI || 1)));
   }
 
-  const adx = calculateEMA(dx, period);
+  // `dx` is NaN-padded for the first `period` bars; wilderSmooth re-seeds after
+  // the padding instead of propagating NaN forever (the old EMA did not, which
+  // made every ADX value NaN and silently disabled every ADX strategy).
+  const adx = wilderSmooth(dx, period);
   return { adx, plusDI, minusDI };
 }
 
@@ -359,9 +398,13 @@ export function calculatePSAR(highs: number[], lows: number[], step = 0.02, maxS
 export function calculateIchimoku(highs: number[], lows: number[], closes: number[], tenkanPeriod = 9, kijunPeriod = 26, senkouBPeriod = 52) {
   const tenkan: number[] = [];
   const kijun: number[] = [];
-  const senkouA: number[] = []; // Shifted forward by 26 natively
-  const senkouB: number[] = [];
-  
+  // Raw (unshifted) spans. Ichimoku plots these `kijunPeriod` bars FORWARD, so
+  // the cloud you compare today's price against was computed 26 bars ago. The
+  // shift is applied after the loop — previously it was never applied at all
+  // despite the comment claiming otherwise.
+  const rawSenkouA: number[] = [];
+  const rawSenkouB: number[] = [];
+
   for (let i = 0; i < closes.length; i++) {
     // Tenkan-sen (Conversion Line)
     if (i < tenkanPeriod - 1) { tenkan.push(NaN); } else {
@@ -385,21 +428,26 @@ export function calculateIchimoku(highs: number[], lows: number[], closes: numbe
     
     // Senkou Span A
     if (!isNaN(tenkan[i]) && !isNaN(kijun[i])) {
-      senkouA.push((tenkan[i] + kijun[i]) / 2);
+      rawSenkouA.push((tenkan[i] + kijun[i]) / 2);
     } else {
-      senkouA.push(NaN);
+      rawSenkouA.push(NaN);
     }
 
     // Senkou Span B
-    if (i < senkouBPeriod - 1) { senkouB.push(NaN); } else {
+    if (i < senkouBPeriod - 1) { rawSenkouB.push(NaN); } else {
       let h = -Infinity, l = Infinity;
       for (let j = 0; j < senkouBPeriod; j++) {
         if (highs[i - j] > h) h = highs[i - j];
         if (lows[i - j] < l) l = lows[i - j];
       }
-      senkouB.push((h + l) / 2);
+      rawSenkouB.push((h + l) / 2);
     }
   }
 
-  return { tenkan, kijun, senkouA, senkouB };
+  // Shift the cloud forward by kijunPeriod: the span at bar i was computed from
+  // data up to bar i - kijunPeriod. Uses only past data, so no look-ahead.
+  const shift = (raw: number[]) =>
+    raw.map((_, i) => (i >= kijunPeriod ? raw[i - kijunPeriod] : NaN));
+
+  return { tenkan, kijun, senkouA: shift(rawSenkouA), senkouB: shift(rawSenkouB) };
 }
