@@ -37,11 +37,24 @@ ssh $SERVER << 'EOF'
   echo "Installing project dependencies..."
   npm install
 
-  # Generate Prisma client and sync database
-  echo "Generating Prisma Client and syncing DB schema..."
+  # Generate Prisma client and apply migrations
+  echo "Generating Prisma Client and applying migrations..."
   npx prisma generate
-  npx prisma db push
-  
+
+  # `migrate deploy` applies committed migrations and refuses to destroy data.
+  # `db push` was previously used here: it has no migration history and will
+  # silently drop columns on some schema changes — against the live database.
+  if [ -d prisma/migrations ]; then
+    npx prisma migrate deploy
+  else
+    echo "!! prisma/migrations is missing. Refusing to fall back to 'db push' on"
+    echo "!! a live database. Create an initial migration locally with:"
+    echo "!!   npx prisma migrate dev --name init"
+    echo "!! then commit prisma/migrations/ and redeploy."
+    exit 1
+  fi
+
+
   echo "Building Next.js application..."
   npm run build
 

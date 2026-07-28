@@ -79,27 +79,58 @@ async function getOrCreateAsset(userId: string, row: TradebookRow, assetClass: s
   return asset.id;
 }
 
-async function transactionExists(userId: string, row: TradebookRow): Promise<boolean> {
-  if (row.tradeId) {
-    const existing = await prisma.transaction.findUnique({
-      where: { userId_tradeId: { userId, tradeId: row.tradeId } },
-    });
-    return !!existing;
-  }
+/**
+ * Everything already in the DB for this user, loaded once.
+ *
+ * The import previously issued a duplicate-check query PER ROW plus an asset
+ * lookup PER ROW, so a multi-year tradebook meant thousands of sequential round
+ * trips. Two queries up front replace all of them.
+ */
+type DedupeIndex = {
+  tradeIds: Set<string>;
+  /** Composite key for rows that carry no trade_id. */
+  fallbackKeys: Set<string>;
+};
 
-  const canonicalKey = getCanonicalKey(row.isin, row.symbol);
+function fallbackKeyFor(canonicalKey: string, row: TradebookRow): string {
+  return [canonicalKey, row.type, row.quantity, row.price, row.tradeDate.getTime()].join('|');
+}
 
-  const existing = await prisma.transaction.findFirst({
-    where: {
-      userId,
-      type: row.type,
-      quantity: row.quantity,
-      price: row.price,
-      date: row.tradeDate,
-      asset: { canonicalKey },
+async function loadDedupeIndex(userId: string): Promise<DedupeIndex> {
+  const existing = await prisma.transaction.findMany({
+    where: { userId },
+    select: {
+      tradeId: true,
+      type: true,
+      quantity: true,
+      price: true,
+      date: true,
+      asset: { select: { canonicalKey: true } },
     },
   });
-  return !!existing;
+
+  const tradeIds = new Set<string>();
+  const fallbackKeys = new Set<string>();
+  for (const tx of existing) {
+    if (tx.tradeId) tradeIds.add(tx.tradeId);
+    fallbackKeys.add(
+      [tx.asset.canonicalKey, tx.type, tx.quantity, tx.price, tx.date.getTime()].join('|')
+    );
+  }
+  return { tradeIds, fallbackKeys };
+}
+
+/** In-memory duplicate check. Records the row so later rows in the same file dedupe too. */
+function claimRow(index: DedupeIndex, canonicalKey: string, row: TradebookRow): boolean {
+  if (row.tradeId) {
+    if (index.tradeIds.has(row.tradeId)) return false;
+    index.tradeIds.add(row.tradeId);
+    return true;
+  }
+  const key = fallbackKeyFor(canonicalKey, row);
+  if (index.fallbackKeys.has(key)) return false;
+  index.fallbackKeys.add(key);
+  return true;
 }
 
 export async function importTradebookFromCsv(
@@ -123,18 +154,22 @@ export async function importTradebookFromCsv(
   let imported = 0;
   let skipped = parseSkipped;
 
+  const dedupe = await loadDedupeIndex(userId);
+  const touchedAssetIds = new Set<string>();
+
   for (const row of processed) {
     /** SPLIT is re-applied from NSE on replay; storing it causes duplicate splits. */
     if (row.type === 'SPLIT') {
       continue;
     }
 
-    if (await transactionExists(userId, row)) {
+    if (!claimRow(dedupe, getCanonicalKey(row.isin, row.symbol), row)) {
       skipped++;
       continue;
     }
 
     const assetId = await getOrCreateAsset(userId, row, assetClass);
+    touchedAssetIds.add(assetId);
     await prisma.transaction.create({
       data: {
         userId,
@@ -155,7 +190,7 @@ export async function importTradebookFromCsv(
     imported++;
   }
 
-  await refreshAssetPrices(userId);
+  await refreshAssetPrices(userId, touchedAssetIds);
 
   await prisma.importFile.create({
     data: {
@@ -169,25 +204,46 @@ export async function importTradebookFromCsv(
   return { fileName, imported, skipped, errors };
 }
 
-async function refreshAssetPrices(userId: string): Promise<void> {
-  const assets = await prisma.asset.findMany({ where: { userId } });
+/**
+ * Set each touched asset's mark price to its most recent real trade.
+ *
+ * Was two queries per asset (find latest, then update) over EVERY asset the user
+ * owns, even ones this import never touched. Now one query for the candidate
+ * rows, reduced in memory, and one update per asset that actually changed.
+ */
+async function refreshAssetPrices(userId: string, assetIds?: Set<string>): Promise<void> {
+  const scope = assetIds && assetIds.size > 0 ? { id: { in: [...assetIds] } } : {};
+  const assets = await prisma.asset.findMany({
+    where: { userId, ...scope },
+    select: { id: true, price: true },
+  });
+  if (assets.length === 0) return;
 
-  for (const asset of assets) {
-    const lastTx = await prisma.transaction.findFirst({
-      where: {
-        assetId: asset.id,
-        type: { in: ['BUY', 'SELL'] },
-        price: { gt: 0.01 },
-      },
-      orderBy: { date: 'desc' },
-    });
-    if (lastTx) {
-      await prisma.asset.update({
-        where: { id: asset.id },
-        data: { price: lastTx.price },
-      });
-    }
-  }
+  const rows = await prisma.transaction.findMany({
+    where: {
+      userId,
+      assetId: { in: assets.map((a) => a.id) },
+      type: { in: ['BUY', 'SELL'] },
+      price: { gt: 0.01 },
+    },
+    select: { assetId: true, price: true, date: true },
+    orderBy: { date: 'asc' },
+  });
+
+  // Ascending order means the last write per asset is the latest trade.
+  const latest = new Map<string, number>();
+  for (const r of rows) latest.set(r.assetId, r.price);
+
+  await Promise.all(
+    assets
+      .filter((a) => {
+        const p = latest.get(a.id);
+        return p != null && p !== a.price;
+      })
+      .map((a) =>
+        prisma.asset.update({ where: { id: a.id }, data: { price: latest.get(a.id)! } })
+      )
+  );
 }
 
 export async function importMultipleTradebooks(
