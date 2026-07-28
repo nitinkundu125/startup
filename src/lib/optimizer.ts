@@ -28,11 +28,14 @@ export type OptimizerReport = {
   splitDate: string | null;
 };
 
-/** In-sample bar a strategy must clear to be considered at all. */
-const MIN_IN_SAMPLE_TRADES = 3;
-const MIN_IN_SAMPLE_WIN_RATE = 67;
-/** A strategy "held up" if it stayed profitable on data it was not selected on. */
-const HELD_UP_MIN_WIN_RATE = 50;
+import {
+  MIN_IN_SAMPLE_TRADES,
+  MIN_IN_SAMPLE_WIN_RATE,
+  HELD_UP_MIN_WIN_RATE,
+  MIN_OOS_TRADES,
+} from './backtest-constants';
+
+export { MIN_OOS_TRADES };
 
 export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
   const period1 = new Date('1990-01-01'); // Fetch all available lifetime data
@@ -68,7 +71,10 @@ export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
     if (!passed) continue;
 
     strategiesPassed++;
-    if (split.outOfSample.totalTrades > 0 && split.outOfSample.winRate >= HELD_UP_MIN_WIN_RATE) {
+    if (
+      split.outOfSample.totalTrades >= MIN_OOS_TRADES &&
+      split.outOfSample.winRate >= HELD_UP_MIN_WIN_RATE
+    ) {
       strategiesHeldUp++;
     }
 
@@ -81,14 +87,20 @@ export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
     });
   }
 
-  // Rank by out-of-sample performance, not by what we fitted on. Strategies with
-  // no out-of-sample trades cannot be judged, so they sort last rather than
-  // masquerading as winners.
-  const oosRank = (r: OptimizerResult) =>
-    r.outOfSample.totalTrades > 0 ? r.outOfSample.averageReturn : -Infinity;
+  // Rank by out-of-sample performance, not by what we fitted on. Strategies
+  // whose held-back sample is too small to mean anything sort below every
+  // properly-validated one regardless of how flattering their numbers look.
+  const validated = (r: OptimizerResult) => r.outOfSample.totalTrades >= MIN_OOS_TRADES;
 
   results.sort((a, b) => {
-    const d = oosRank(b) - oosRank(a);
+    const av = validated(a);
+    const bv = validated(b);
+    if (av !== bv) return av ? -1 : 1;
+    if (!av) {
+      // Neither is validated — order by sample size so the least-thin is first.
+      return b.outOfSample.totalTrades - a.outOfSample.totalTrades;
+    }
+    const d = b.outOfSample.averageReturn - a.outOfSample.averageReturn;
     if (d !== 0) return d;
     return b.outOfSample.winRate - a.outOfSample.winRate;
   });

@@ -5,7 +5,8 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Activity, Play, Zap, CheckCircle2, TrendingUp, Settings2, ShieldCheck, Globe, Plus, Pin, Star, X } from 'lucide-react';
 import { DynamicBacktestResult, StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
-import { OptimizerResult } from '@/lib/optimizer';
+import type { OptimizerResult } from '@/lib/optimizer';
+import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
 type WatchlistItem = {
@@ -846,13 +847,16 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                           {/* Held-back window. Emphasised over the fitted columns because
                               the fitted ones were selected on and therefore prove nothing. */}
                           <td className="px-5 py-4 text-right bg-indigo-50/40">
-                            {res.oosTotalTrades > 0 ? (
+                            {res.oosTotalTrades >= MIN_OOS_TRADES ? (
                               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${res.heldUp ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>
                                 {res.oosWinRate.toFixed(1)}%
                               </span>
                             ) : (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700" title="No trades in the held-back window — this strategy was never validated">
-                                unvalidated
+                              <span
+                                className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700"
+                                title={`Only ${res.oosTotalTrades} held-back trade(s) — too few to mean anything. A single winning trade is a 100% win rate.`}
+                              >
+                                {res.oosTotalTrades === 0 ? 'unvalidated' : `only ${res.oosTotalTrades} trade(s)`}
                               </span>
                             )}
                           </td>
@@ -1380,13 +1384,16 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                               </td>
                               {/* Held-back window — the only columns here that are evidence. */}
                               <td className="px-5 py-4 text-center bg-indigo-50/40">
-                                {res.outOfSample.totalTrades > 0 ? (
+                                {res.outOfSample.totalTrades >= MIN_OOS_TRADES ? (
                                   <span className={`inline-flex items-center justify-center font-bold px-2.5 py-1 rounded-full text-xs border ${res.outOfSample.winRate >= 50 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
                                     {res.outOfSample.winRate.toFixed(1)}%
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center justify-center bg-amber-50 text-amber-700 font-medium px-2.5 py-1 rounded-full text-xs border border-amber-200" title="No trades in the held-back window — never validated">
-                                    unvalidated
+                                  <span
+                                    className="inline-flex items-center justify-center bg-amber-50 text-amber-700 font-medium px-2.5 py-1 rounded-full text-xs border border-amber-200"
+                                    title={`Only ${res.outOfSample.totalTrades} held-back trade(s) — too few to mean anything.`}
+                                  >
+                                    {res.outOfSample.totalTrades === 0 ? 'unvalidated' : `only ${res.outOfSample.totalTrades}`}
                                   </span>
                                 )}
                               </td>

@@ -67,10 +67,31 @@ export type StrategyParams = SingleStrategyParams | CompoundStrategyParams;
  *
  * 15 bps one way (~30 bps round trip) approximates Indian delivery equity with a
  * discount broker: STT 0.1% on each leg, plus exchange transaction charges, SEBI
- * turnover fee, stamp duty on the buy, GST, and brokerage. Tune per your broker.
+ * turnover fee, stamp duty on the buy, GST, and brokerage.
+ *
+ * This is an estimate, and it is the single input most likely to be wrong for
+ * you — it lands hardest on exactly the high-frequency, small-edge strategies
+ * the optimizer prefers. Override with BACKTEST_ONE_WAY_COST_PCT (a fraction,
+ * so 0.0025 = 25 bps per leg) rather than editing this file.
+ *
  * Capital gains tax is NOT modelled — it depends on your holding period and slab.
  */
-export const DEFAULT_ONE_WAY_COST_PCT = 0.0015;
+function resolveDefaultCost(): number {
+  const raw = process.env.BACKTEST_ONE_WAY_COST_PCT;
+  if (raw === undefined || raw.trim() === '') return 0.0015;
+  const parsed = Number(raw);
+  // A typo here silently changes every reported return, so reject rather than
+  // fall through to NaN (which would make every net return NaN).
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed >= 1) {
+    console.warn(
+      `BACKTEST_ONE_WAY_COST_PCT="${raw}" is not a fraction in [0, 1); using the 0.0015 default.`
+    );
+    return 0.0015;
+  }
+  return parsed;
+}
+
+export const DEFAULT_ONE_WAY_COST_PCT = resolveDefaultCost();
 
 type IndicatorCache = Record<string, number[] | Record<string, number[]>>;
 

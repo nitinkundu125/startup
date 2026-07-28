@@ -34,9 +34,13 @@ export type BatchOptimizerResult = {
   currentSignal?: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
 };
 
-const MIN_IN_SAMPLE_TRADES = 3;
-const MIN_IN_SAMPLE_WIN_RATE = 67;
-const HELD_UP_MIN_WIN_RATE = 50;
+import {
+  MIN_IN_SAMPLE_TRADES,
+  MIN_IN_SAMPLE_WIN_RATE,
+  HELD_UP_MIN_WIN_RATE,
+  MIN_OOS_TRADES,
+} from '@/lib/backtest-constants';
+
 const MAX_SYMBOLS_PER_BATCH = 50;
 
 export async function POST(request: Request) {
@@ -106,7 +110,8 @@ export async function POST(request: Request) {
               oosTotalReturn: outOfSample.totalReturn,
               oosEquityMaxDrawdown: outOfSample.equityMaxDrawdown,
               heldUp:
-                outOfSample.totalTrades > 0 && outOfSample.winRate >= HELD_UP_MIN_WIN_RATE,
+                outOfSample.totalTrades >= MIN_OOS_TRADES &&
+                outOfSample.winRate >= HELD_UP_MIN_WIN_RATE,
               splitDate: split.splitDate ? split.splitDate.toISOString() : null,
               strategy: strat,
               currentSignal: outOfSample.currentSignal,
@@ -137,10 +142,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // Rank by out-of-sample performance. Strategies that were never validated
-    // (no held-back trades) sort below ones that were.
+    // Rank by out-of-sample performance. A held-back sample too small to mean
+    // anything sorts below every properly-validated result, however good its
+    // numbers look — one winning trade is a 100% win rate and proves nothing.
     batchResults.sort((a, b) => {
-      if (a.heldUp !== b.heldUp) return a.heldUp ? -1 : 1;
+      const av = a.oosTotalTrades >= MIN_OOS_TRADES;
+      const bv = b.oosTotalTrades >= MIN_OOS_TRADES;
+      if (av !== bv) return av ? -1 : 1;
+      if (!av) return b.oosTotalTrades - a.oosTotalTrades;
       if (b.oosWinRate !== a.oosWinRate) return b.oosWinRate - a.oosWinRate;
       return b.oosAverageReturn - a.oosAverageReturn;
     });
