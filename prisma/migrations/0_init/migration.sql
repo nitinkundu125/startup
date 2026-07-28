@@ -19,6 +19,7 @@ CREATE TABLE "User" (
     "email" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
     "name" TEXT,
+    "sessionsValidFrom" DATETIME,
     "holdingsSnapshot" TEXT,
     "ltpSnapshot" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
