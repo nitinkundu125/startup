@@ -11,7 +11,12 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/samples') ||
     pathname.endsWith('.svg') ||
-    pathname.startsWith('/api/auth')
+    pathname.startsWith('/api/auth') ||
+    // Cron endpoints authenticate themselves (CRON_SECRET header OR a session)
+    // and return 401 on failure. Without this they were redirected to /login
+    // before the handler ever ran, so a scheduler could never reach them — the
+    // shared-secret support was unreachable.
+    pathname.startsWith('/api/cron/')
   ) {
     return NextResponse.next();
   }
