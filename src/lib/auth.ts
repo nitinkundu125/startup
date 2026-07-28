@@ -82,15 +82,55 @@ export async function requireValidUser() {
 }
 
 /**
+ * Change a password, verifying the current one first.
+ *
+ * Revoking afterwards is the point: without it, changing your password does not
+ * boot an attacker who already holds your session cookie — which is the single
+ * most common reason people change a password in the first place.
+ */
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  if (newPassword.length < 6) {
+    throw new Error('Password must be at least 6 characters');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, passwordHash: true },
+  });
+  if (!user) throw new Error('User not found');
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) throw new Error('Current password is incorrect');
+
+  if (await bcrypt.compare(newPassword, user.passwordHash)) {
+    throw new Error('New password must differ from the current one');
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: await bcrypt.hash(newPassword, 10) },
+  });
+
+  await revokeAllSessions(userId);
+}
+
+/**
  * Invalidate every session for a user, including cookies already stolen.
- * Called on logout; also call this after a password change.
+ * Called on logout and on password change.
  */
 export async function revokeAllSessions(userId: string): Promise<void> {
   await prisma.user.update({
     where: { id: userId },
-    // +1ms so a token minted in the same millisecond as the revocation is also
-    // rejected, rather than surviving on a >= comparison.
-    data: { sessionsValidFrom: new Date(Date.now() + 1) },
+    // Exactly now, not now+1. The check is `issuedAt < sessionsValidFrom`, so a
+    // token minted in this same millisecond survives — which is required,
+    // because changePassword re-issues immediately after revoking and the two
+    // calls routinely land in the same millisecond. Every token minted BEFORE
+    // this instant is still rejected, which is the whole point.
+    data: { sessionsValidFrom: new Date() },
   });
 }
 

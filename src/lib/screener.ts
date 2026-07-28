@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { backtestStartDate } from '@/lib/backtest-constants';
 import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
 import {
   runSplitBacktest,
@@ -78,7 +79,7 @@ function edgeMessage(split: { inSample: DynamicBacktestResult; outOfSample: Dyna
 }
 
 export async function runScreenerForSymbol(userId: string, symbol: string) {
-  const period1 = new Date('1990-01-01'); // Fetch all available lifetime data
+  const period1 = backtestStartDate();
 
   let rows;
   try {

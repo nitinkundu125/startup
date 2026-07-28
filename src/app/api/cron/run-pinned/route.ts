@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { backtestStartDate } from '@/lib/backtest-constants';
 import { requireValidUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     let updatedCount = 0;
 
     for (const symbol of symbols) {
-      const period1 = new Date('1990-01-01');
+      const period1 = backtestStartDate();
 
       let seriesData;
       try {

@@ -74,6 +74,16 @@ describe('session revocation', () => {
     assert.equal(isRevoked(null, new Date()), true);
   });
 
+  it('keeps a token minted in the same millisecond as the revocation', async () => {
+    // changePassword revokes then immediately re-issues; the two land in the
+    // same millisecond routinely. A `<=` comparison here would log the user out
+    // of the very tab they changed their password in.
+    const token = await createSessionToken('user-1');
+    const session = await verifySessionTokenFull(token);
+    const cutoff = new Date(session!.issuedAt!);
+    assert.equal(isRevoked(session!.issuedAt, cutoff), false);
+  });
+
   it('leaves users who never revoked unaffected', () => {
     assert.equal(isRevoked(Date.now(), null), false);
     assert.equal(isRevoked(null, null), false);

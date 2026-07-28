@@ -30,6 +30,7 @@ export type OptimizerReport = {
 
 import {
   MIN_IN_SAMPLE_TRADES,
+  backtestStartDate,
   MIN_IN_SAMPLE_WIN_RATE,
   HELD_UP_MIN_WIN_RATE,
   MIN_OOS_TRADES,
@@ -38,7 +39,7 @@ import {
 export { MIN_OOS_TRADES };
 
 export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
-  const period1 = new Date('1990-01-01'); // Fetch all available lifetime data
+  const period1 = backtestStartDate();
 
   let rows;
   try {

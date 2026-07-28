@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { backtestStartDate } from '@/lib/backtest-constants';
 import { requireValidUser } from '@/lib/auth';
 import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
 import { runSplitBacktest, StrategyParams } from '@/lib/dynamic-backtester';
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing symbol or strategy' }, { status: 400 });
     }
 
-    const period1 = new Date('1990-01-01'); // Fetch all available lifetime data
+    const period1 = backtestStartDate();
 
     const rows = await fetchYahooDailyCloses(symbol, period1);
     if (!rows || rows.length < 200) {

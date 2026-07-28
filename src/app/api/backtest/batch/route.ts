@@ -36,6 +36,7 @@ export type BatchOptimizerResult = {
 
 import {
   MIN_IN_SAMPLE_TRADES,
+  backtestStartDate,
   MIN_IN_SAMPLE_WIN_RATE,
   HELD_UP_MIN_WIN_RATE,
   MIN_OOS_TRADES,
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
             return JSON.parse(cached.results) as BatchOptimizerResult[];
           }
 
-          const period1 = new Date('1990-01-01');
+          const period1 = backtestStartDate();
           const rows = await fetchYahooDailyCloses(symbol, period1);
           if (rows.length < 100) return null; // Not enough data
 
