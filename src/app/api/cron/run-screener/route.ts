@@ -3,20 +3,21 @@ import { requireValidUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { runScreenerForSymbol } from '@/lib/screener';
 import { revalidatePath } from 'next/cache';
+import { isCronRequest } from '@/lib/cron-auth';
 
 export async function POST(request: Request) {
-  // In a real production app, this would be secured by a CRON_SECRET token
-  // to allow external cron services (like Vercel Cron or cron-job.org) to hit it.
-  // For now, we will require the user to be logged in and trigger it manually via the UI.
-  
-  const user = await requireValidUser();
-  if (!user) {
+  // Accepts either a valid CRON_SECRET (scans every user's watchlist) or a
+  // logged-in user (scans only their own). Requiring a session meant no external
+  // scheduler could ever invoke this.
+  const cron = isCronRequest(request);
+  const user = cron ? null : await requireValidUser();
+  if (!cron && !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const watchlist = await prisma.watchlistItem.findMany({
-      where: { userId: user.id }
+      where: user ? { userId: user.id } : {},
     });
 
     if (watchlist.length === 0) {
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     // Run screener for all watched symbols sequentially to avoid rate limits
     for (const item of watchlist) {
       console.log(`Running screener for ${item.symbol}...`);
-      await runScreenerForSymbol(user.id, item.symbol);
+      await runScreenerForSymbol(item.userId, item.symbol);
     }
 
     revalidatePath('/watchlist');

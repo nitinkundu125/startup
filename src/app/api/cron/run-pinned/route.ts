@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { requireValidUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { fetchYahooDailyCloses } from '@/lib/index-history';
-import { runDynamicBacktest, StrategyParams } from '@/lib/dynamic-backtester';
+import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
+import { runSplitBacktest, StrategyParams } from '@/lib/dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
+import { isCronRequest } from '@/lib/cron-auth';
 
 function getStrategyByName(name: string): StrategyParams | undefined {
   return MASTER_STRATEGY_LIBRARY.find(strat => {
@@ -13,15 +14,19 @@ function getStrategyByName(name: string): StrategyParams | undefined {
 }
 
 export async function POST(request: Request) {
-  // In production, require CRON secret or user session
-  const user = await requireValidUser();
-  if (!user) {
+  // A scheduler has no session cookie, so this endpoint accepts either a valid
+  // CRON_SECRET (refreshes every user's pinned strategies) or a logged-in user
+  // (refreshes only their own). Previously it required a session, which meant no
+  // scheduler could ever call it.
+  const cron = isCronRequest(request);
+  const user = cron ? null : await requireValidUser();
+  if (!cron && !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const pinnedStrategies = await prisma.pinnedStrategy.findMany({
-      where: { userId: user.id }
+      where: user ? { userId: user.id } : {},
     });
 
     if (pinnedStrategies.length === 0) {
@@ -30,25 +35,23 @@ export async function POST(request: Request) {
 
     // Group by symbol to optimize Yahoo fetches
     const symbols = Array.from(new Set(pinnedStrategies.map(p => p.symbol)));
-    
+
     let updatedCount = 0;
 
     for (const symbol of symbols) {
       const period1 = new Date('1990-01-01');
 
-      let closes: number[], highs: number[], lows: number[], volumes: number[], dates: Date[];
+      let seriesData;
       try {
-        const result = await fetchYahooDailyCloses(symbol, period1);
-        if (result.length < 50) continue;
-        closes = result.map((r: any) => r.close);
-        highs = result.map((r: any) => r.high ?? r.close);
-        lows = result.map((r: any) => r.low ?? r.close);
-        volumes = result.map((r: any) => r.volume ?? 0);
-        dates = result.map((r: any) => new Date(r.date));
+        const rows = await fetchYahooDailyCloses(symbol, period1);
+        if (rows.length < 50) continue;
+        seriesData = toPriceSeries(rows);
       } catch (e) {
         console.error(`Failed to fetch data for ${symbol}:`, e);
         continue;
       }
+
+      const { closes, highs, lows, opens, volumes, dates } = seriesData;
 
       // Find all pinned strategies for this symbol
       const symbolStrategies = pinnedStrategies.filter(p => p.symbol === symbol);
@@ -57,8 +60,9 @@ export async function POST(request: Request) {
         const strat = getStrategyByName(pinned.strategyName);
         if (!strat) continue;
 
-        const stats = runDynamicBacktest(strat, closes, highs, lows, volumes, dates);
-        
+        const split = runSplitBacktest(strat, closes, highs, lows, volumes, dates, opens);
+        const stats = split.full;
+
         const newSignal = stats.currentSignal || 'HOLDING';
         let isNewSignal = pinned.isNewSignal;
 
@@ -67,11 +71,18 @@ export async function POST(request: Request) {
           isNewSignal = true;
         }
 
+        // Persist the held-back numbers alongside the fitted ones so the UI can
+        // show whether this strategy was ever validated.
         const statsJson = JSON.stringify({
-          winRate: stats.winRate,
-          totalTrades: stats.totalTrades,
-          averageReturn: stats.averageReturn,
-          totalReturn: stats.totalReturn
+          winRate: split.inSample.winRate,
+          totalTrades: split.inSample.totalTrades,
+          averageReturn: split.inSample.averageReturn,
+          totalReturn: split.inSample.totalReturn,
+          oosWinRate: split.outOfSample.winRate,
+          oosTotalTrades: split.outOfSample.totalTrades,
+          oosAverageReturn: split.outOfSample.averageReturn,
+          oosTotalReturn: split.outOfSample.totalReturn,
+          splitDate: split.splitDate ? split.splitDate.toISOString() : null,
         });
 
         await prisma.pinnedStrategy.update({
@@ -84,7 +95,7 @@ export async function POST(request: Request) {
             lastUpdated: new Date()
           }
         });
-        
+
         updatedCount++;
       }
     }
