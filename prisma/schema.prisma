@@ -30,6 +30,12 @@ model User {
   email             String        @unique
   passwordHash      String
   name              String?
+  /**
+   * Sessions issued before this instant are rejected. Logout and password
+   * change bump it, which is what actually revokes a stolen cookie — clearing
+   * the cookie only removes the browser's copy.
+   */
+  sessionsValidFrom DateTime?
   /** JSON: Zerodha holdings export for qty reconciliation */
   holdingsSnapshot  String?
   /** JSON: { fetchedAt, prices: { SYMBOL: ltp }, failed?: string[] } from NSE/Yahoo */

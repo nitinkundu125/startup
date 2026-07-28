@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { getSessionUserId } from '@/lib/session';
+import { getSessionUserId, getVerifiedSession } from '@/lib/session';
 
 export async function registerUser(
   email: string,
@@ -50,14 +50,47 @@ export async function requireUser() {
   return requireValidUser();
 }
 
-/** Returns user only if session exists and user row is in DB. Does not modify cookies (safe in Server Components). */
+/**
+ * Returns the user only if the session is valid, the user row exists, and the
+ * session has not been revoked. Does not modify cookies (safe in Server
+ * Components).
+ *
+ * This is where revocation is enforced. The edge middleware can only verify the
+ * signature — it has no database — so a stolen cookie gets past the middleware
+ * and is rejected here. Every page and route handler goes through this.
+ */
 export async function requireValidUser() {
-  const userId = await getSessionUserId();
-  if (!userId) return null;
+  const session = await getVerifiedSession();
+  if (!session) return null;
 
-  return prisma.user.findUnique({
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, email: true, name: true, sessionsValidFrom: true },
+  });
+  if (!user) return null;
+
+  if (user.sessionsValidFrom) {
+    // Tokens minted before the cut-off are dead. A token with no issued-at
+    // predates revocation support, so it is treated as too old to trust.
+    const issuedAt = session.issuedAt;
+    if (issuedAt === null || issuedAt < user.sessionsValidFrom.getTime()) {
+      return null;
+    }
+  }
+
+  return { id: user.id, email: user.email, name: user.name };
+}
+
+/**
+ * Invalidate every session for a user, including cookies already stolen.
+ * Called on logout; also call this after a password change.
+ */
+export async function revokeAllSessions(userId: string): Promise<void> {
+  await prisma.user.update({
     where: { id: userId },
-    select: { id: true, email: true, name: true },
+    // +1ms so a token minted in the same millisecond as the revocation is also
+    // rejected, rather than surviving on a >= comparison.
+    data: { sessionsValidFrom: new Date(Date.now() + 1) },
   });
 }
 

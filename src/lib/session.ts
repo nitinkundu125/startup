@@ -1,5 +1,10 @@
 import { cookies } from 'next/headers';
-import { createSessionToken, verifySessionToken } from '@/lib/session-token';
+import {
+  createSessionToken,
+  verifySessionToken,
+  verifySessionTokenFull,
+  type VerifiedSession,
+} from '@/lib/session-token';
 
 const COOKIE_NAME = 'session';
 const MAX_AGE_DAYS = 30;
@@ -9,6 +14,14 @@ export async function getSessionUserId(): Promise<string | null> {
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) return null;
   return verifySessionToken(token);
+}
+
+/** Signature-verified session including its issued-at, for revocation checks. */
+export async function getVerifiedSession(): Promise<VerifiedSession | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  return verifySessionTokenFull(token);
 }
 
 export async function setSessionCookie(userId: string): Promise<void> {

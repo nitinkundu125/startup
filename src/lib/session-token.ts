@@ -3,6 +3,15 @@ import { constantTimeEquals } from '@/lib/cron-auth';
 type SessionPayload = {
   userId: string;
   exp: number;
+  /** Issued-at, in epoch ms. Compared against User.sessionsValidFrom so a
+   *  logout or password change can invalidate tokens already in the wild. */
+  iat?: number;
+};
+
+export type VerifiedSession = {
+  userId: string;
+  /** Absent on tokens issued before issued-at was recorded. */
+  issuedAt: number | null;
 };
 
 const DEV_FALLBACK_SECRET = 'dev-secret-change-in-production';
@@ -85,6 +94,7 @@ async function hmacSign(message: string): Promise<string> {
 export async function createSessionToken(userId: string): Promise<string> {
   const payload: SessionPayload = {
     userId,
+    iat: Date.now(),
     exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
   };
   const encoded = encodeBase64Url(JSON.stringify(payload));
@@ -92,7 +102,12 @@ export async function createSessionToken(userId: string): Promise<string> {
   return `${encoded}.${sig}`;
 }
 
-export async function verifySessionToken(token: string): Promise<string | null> {
+/**
+ * Signature + expiry check only. This runs in the edge middleware, which has no
+ * database access, so it cannot tell whether the session has been revoked.
+ * Revocation is enforced in requireValidUser() on the server.
+ */
+export async function verifySessionTokenFull(token: string): Promise<VerifiedSession | null> {
   try {
     const [encoded, sig] = token.split('.');
     if (!encoded || !sig) return null;
@@ -101,8 +116,15 @@ export async function verifySessionToken(token: string): Promise<string | null> 
     if (!constantTimeEquals(sig, expected)) return null;
     const payload = JSON.parse(decodeBase64Url(encoded)) as SessionPayload;
     if (!payload.userId || payload.exp < Date.now()) return null;
-    return payload.userId;
+    return {
+      userId: payload.userId,
+      issuedAt: typeof payload.iat === 'number' ? payload.iat : null,
+    };
   } catch {
     return null;
   }
+}
+
+export async function verifySessionToken(token: string): Promise<string | null> {
+  return (await verifySessionTokenFull(token))?.userId ?? null;
 }
