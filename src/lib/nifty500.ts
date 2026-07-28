@@ -1,3 +1,18 @@
+/**
+ * SURVIVORSHIP BIAS WARNING — read before trusting any backtest that uses these.
+ *
+ * These are the CURRENT index constituents. Backtesting them over history only
+ * ever tests companies that survived and were promoted into the index; the ones
+ * that were delisted, acquired, or demoted are absent. Every strategy scanned
+ * across this universe will therefore look better than it would have been in
+ * real time, and the effect grows the further back the window reaches.
+ *
+ * Fixing this properly needs point-in-time constituent lists (NSE publishes
+ * index reconstitution history). Until then, treat cross-sectional scan results
+ * as an upper bound, not an estimate.
+ */
+export const UNIVERSE_IS_SURVIVORSHIP_BIASED = true;
+
 // Official Nifty 50 Index (Top 50 Blue Chip)
 export const NIFTY_50_SYMBOLS = [
   "ADANIENT.NS", "ADANIPORTS.NS", "APOLLOHOSP.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJAJ-AUTO.NS", "BAJFINANCE.NS", "BAJAJFINSV.NS", "BEL.NS", "BHARTIARTL.NS",

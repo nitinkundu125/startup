@@ -1,22 +1,43 @@
 import { NextResponse } from 'next/server';
 import { requireValidUser } from '@/lib/auth';
-import { fetchYahooDailyCloses } from '@/lib/index-history';
-import { runDynamicBacktest, StrategyParams } from '@/lib/dynamic-backtester';
+import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
+import { runSplitBacktest, StrategyParams } from '@/lib/dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { prisma } from '@/lib/prisma';
+
+/**
+ * Bumped when the shape or meaning of a cached result changes, so stale entries
+ * from before the correctness fixes are not served as if they were current.
+ */
+const SCAN_CACHE_VERSION = 'v2';
 
 export type BatchOptimizerResult = {
   symbol: string;
   strategyName: string;
+  /** In-sample (selection window) figures. */
   totalTrades: number;
   profitableTrades: number;
   winRate: number;
   averageReturn: number;
   totalReturn: number;
   maxDrawdown: number;
+  /** Held-back window — judge the strategy on these, not the ones above. */
+  oosTotalTrades: number;
+  oosWinRate: number;
+  oosAverageReturn: number;
+  oosTotalReturn: number;
+  oosEquityMaxDrawdown: number;
+  /** True when the strategy stayed profitable on data it was not selected on. */
+  heldUp: boolean;
+  splitDate: string | null;
   strategy: StrategyParams;
   currentSignal?: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
 };
+
+const MIN_IN_SAMPLE_TRADES = 3;
+const MIN_IN_SAMPLE_WIN_RATE = 67;
+const HELD_UP_MIN_WIN_RATE = 50;
+const MAX_SYMBOLS_PER_BATCH = 50;
 
 export async function POST(request: Request) {
   const user = await requireValidUser();
@@ -24,20 +45,20 @@ export async function POST(request: Request) {
 
   try {
     const { symbols } = await request.json();
-    
+
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
       return NextResponse.json({ error: 'No symbols provided' }, { status: 400 });
     }
 
-    // Limit to max 50 symbols per batch
-    const targetSymbols = symbols.slice(0, 50);
+    const targetSymbols = symbols.slice(0, MAX_SYMBOLS_PER_BATCH);
+    const truncated = symbols.length - targetSymbols.length;
     const batchResults: BatchOptimizerResult[] = [];
-    
+
     // Chunk size of 5 to avoid Yahoo rate limits
     const CHUNK_SIZE = 5;
     for (let i = 0; i < targetSymbols.length; i += CHUNK_SIZE) {
       const chunk = targetSymbols.slice(i, i + CHUNK_SIZE);
-      const dateKey = new Date().toISOString().split('T')[0];
+      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}`;
 
       const chunkPromises = chunk.map(async (symbol) => {
         try {
@@ -45,43 +66,53 @@ export async function POST(request: Request) {
           const cached = await prisma.scanCache.findUnique({
             where: { symbol_dateKey: { symbol, dateKey } }
           });
-          
+
           if (cached) {
             return JSON.parse(cached.results) as BatchOptimizerResult[];
           }
 
           const period1 = new Date('1990-01-01');
-          const result = await fetchYahooDailyCloses(symbol, period1);
-          if (result.length < 100) return null; // Not enough data
-          
-          const closes = result.map((r: any) => r.close);
-          const highs = result.map((r: any) => r.high ?? r.close);
-          const lows = result.map((r: any) => r.low ?? r.close);
-          const volumes = result.map((r: any) => r.volume ?? 0);
-          const dates = result.map((r: any) => new Date(r.date));
-          
+          const rows = await fetchYahooDailyCloses(symbol, period1);
+          if (rows.length < 100) return null; // Not enough data
+
+          const { closes, highs, lows, opens, volumes, dates } = toPriceSeries(rows);
+
           const symbolResults: BatchOptimizerResult[] = [];
-          
+
           for (const strat of MASTER_STRATEGY_LIBRARY) {
-            const stats = runDynamicBacktest(strat, closes, highs, lows, volumes, dates);
-            
-            // Strict 67% win rate filter and minimum 3 trades
-            if (stats.totalTrades >= 3 && stats.winRate >= 67) {
-              symbolResults.push({
-                symbol,
-                strategyName: strat.type === 'COMPOUND' ? (strat.name || 'Custom Compound') : `Single ${strat.type}`,
-                totalTrades: stats.totalTrades,
-                profitableTrades: stats.profitableTrades,
-                winRate: stats.winRate,
-                averageReturn: stats.averageReturn,
-                totalReturn: stats.totalReturn,
-                maxDrawdown: stats.maxDrawdown,
-                strategy: strat,
-                currentSignal: stats.currentSignal
-              });
+            const split = runSplitBacktest(strat, closes, highs, lows, volumes, dates, opens);
+            const { inSample, outOfSample } = split;
+
+            // Select on the training window only — never on full history.
+            if (
+              inSample.totalTrades < MIN_IN_SAMPLE_TRADES ||
+              inSample.winRate < MIN_IN_SAMPLE_WIN_RATE
+            ) {
+              continue;
             }
+
+            symbolResults.push({
+              symbol,
+              strategyName: strat.type === 'COMPOUND' ? (strat.name || 'Custom Compound') : `Single ${strat.type}`,
+              totalTrades: inSample.totalTrades,
+              profitableTrades: inSample.profitableTrades,
+              winRate: inSample.winRate,
+              averageReturn: inSample.averageReturn,
+              totalReturn: inSample.totalReturn,
+              maxDrawdown: inSample.maxDrawdown,
+              oosTotalTrades: outOfSample.totalTrades,
+              oosWinRate: outOfSample.winRate,
+              oosAverageReturn: outOfSample.averageReturn,
+              oosTotalReturn: outOfSample.totalReturn,
+              oosEquityMaxDrawdown: outOfSample.equityMaxDrawdown,
+              heldUp:
+                outOfSample.totalTrades > 0 && outOfSample.winRate >= HELD_UP_MIN_WIN_RATE,
+              splitDate: split.splitDate ? split.splitDate.toISOString() : null,
+              strategy: strat,
+              currentSignal: outOfSample.currentSignal,
+            });
           }
-          
+
           // Save to cache
           await prisma.scanCache.upsert({
             where: { symbol_dateKey: { symbol, dateKey } },
@@ -99,21 +130,30 @@ export async function POST(request: Request) {
           return null;
         }
       });
-      
+
       const results = await Promise.all(chunkPromises);
       for (const res of results) {
         if (res) batchResults.push(...res);
       }
     }
-    
-    // Sort globally by highest winRate, then totalReturn
+
+    // Rank by out-of-sample performance. Strategies that were never validated
+    // (no held-back trades) sort below ones that were.
     batchResults.sort((a, b) => {
-      if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-      return b.totalReturn - a.totalReturn;
+      if (a.heldUp !== b.heldUp) return a.heldUp ? -1 : 1;
+      if (b.oosWinRate !== a.oosWinRate) return b.oosWinRate - a.oosWinRate;
+      return b.oosAverageReturn - a.oosAverageReturn;
     });
 
-    // Return all successful combinations without arbitrary limit
-    return NextResponse.json({ success: true, results: batchResults });
+    return NextResponse.json({
+      success: true,
+      results: batchResults,
+      strategiesPerSymbol: MASTER_STRATEGY_LIBRARY.length,
+      symbolsScanned: targetSymbols.length,
+      // Surfaced rather than silently dropped — a truncated scan should not read
+      // as full coverage.
+      symbolsSkipped: truncated > 0 ? truncated : 0,
+    });
   } catch (error) {
     console.error('Batch Optimize Error:', error);
     return NextResponse.json({ error: 'Optimization failed' }, { status: 500 });

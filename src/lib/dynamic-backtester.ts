@@ -5,6 +5,9 @@ export type TradeResult = {
   entryPrice: number;
   exitDate: Date;
   exitPrice: number;
+  /** Return before costs, %. */
+  grossReturnPct: number;
+  /** Return after round-trip costs, %. This is the number every metric uses. */
   returnPct: number;
   holdingPeriodDays: number;
   maxDrawdownPct: number;
@@ -13,10 +16,16 @@ export type TradeResult = {
 export type DynamicBacktestResult = {
   totalTrades: number;
   profitableTrades: number;
+  /** Share of trades with a positive NET return, %. */
   winRate: number;
+  /** Arithmetic mean net return per trade, %. */
   averageReturn: number;
+  /** COMPOUNDED net return across all trades, %. Not a sum. */
   totalReturn: number;
+  /** Worst single-trade intra-trade drawdown, %. */
   maxDrawdown: number;
+  /** Worst peak-to-trough drawdown of the compounded equity curve, %. */
+  equityMaxDrawdown: number;
   trades: TradeResult[];
   currentSignal: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
   lastSignalDate: Date | null;
@@ -26,7 +35,14 @@ export type RsiParams = { type: 'RSI'; period: number; oversold: number; overbou
 export type SmaParams = { type: 'SMA'; fastPeriod: number; slowPeriod: number; };
 export type EmaParams = { type: 'EMA'; fastPeriod: number; slowPeriod: number; };
 export type MacdParams = { type: 'MACD'; fastPeriod: number; slowPeriod: number; signalPeriod: number; };
-export type BbParams = { type: 'BB'; period: number; multiplier: number; };
+/**
+ * `mode` picks which Bollinger setup this is:
+ *  - 'breakout'  (default) buy a close above the upper band, exit back at the mid
+ *  - 'reversion' buy a close below the lower band, exit back at the mid
+ * Both are legitimate and they are opposite trades, so the strategy has to say
+ * which one it means rather than leaving two engines to disagree about it.
+ */
+export type BbParams = { type: 'BB'; period: number; multiplier: number; mode?: 'breakout' | 'reversion'; };
 export type StochParams = { type: 'STOCH'; period: number; smoothK: number; smoothD: number; oversold: number; overbought: number; };
 export type AtrParams = { type: 'ATR'; period: number; multiplier: number; }; // Used as trailing stop or breakout
 export type VwapParams = { type: 'VWAP'; period: number; }; // Buy when price > VWAP
@@ -46,13 +62,38 @@ export type CompoundStrategyParams = {
 
 export type StrategyParams = SingleStrategyParams | CompoundStrategyParams;
 
+/**
+ * One-way transaction cost as a fraction of trade value, charged on entry AND exit.
+ *
+ * 15 bps one way (~30 bps round trip) approximates Indian delivery equity with a
+ * discount broker: STT 0.1% on each leg, plus exchange transaction charges, SEBI
+ * turnover fee, stamp duty on the buy, GST, and brokerage. Tune per your broker.
+ * Capital gains tax is NOT modelled — it depends on your holding period and slab.
+ */
+export const DEFAULT_ONE_WAY_COST_PCT = 0.0015;
+
+type IndicatorCache = Record<string, number[] | Record<string, number[]>>;
+
+/** Numeric series lookup — indicators that return a single array. */
+function series(cache: IndicatorCache, key: string): number[] {
+  return cache[key] as number[];
+}
+
+/** Multi-line lookup — MACD, Bollinger, Stochastic, ADX, Ichimoku. */
+function lines(cache: IndicatorCache, key: string): Record<string, number[]> {
+  return cache[key] as Record<string, number[]>;
+}
+
 export function runDynamicBacktest(
   strategy: StrategyParams,
   closes: number[],
   highs: number[],
   lows: number[],
   volumes: number[],
-  dates: Date[]
+  dates: Date[],
+  /** Next-bar open prices used for fills. Falls back to close when absent. */
+  opens?: number[],
+  oneWayCostPct: number = DEFAULT_ONE_WAY_COST_PCT
 ): DynamicBacktestResult {
   let inTrade = false;
   let entryPrice = 0;
@@ -66,9 +107,15 @@ export function runDynamicBacktest(
 
   const trades: TradeResult[] = [];
 
-  const conditions: SingleStrategyParams[] = strategy.type === 'COMPOUND' ? strategy.conditions : [strategy as SingleStrategyParams];
+  // Every strategy is evaluated as a confluence of conditions. A bare single
+  // strategy is normalised into a one-condition compound so there is exactly one
+  // evaluation path — previously the non-compound branch existed but was dead
+  // (everything in MASTER_STRATEGY_LIBRARY is COMPOUND) and had drifted out of
+  // sync with the live path.
+  const conditions: SingleStrategyParams[] =
+    strategy.type === 'COMPOUND' ? strategy.conditions : [strategy as SingleStrategyParams];
 
-  const indicatorsData: any = {};
+  const indicatorsData: IndicatorCache = {};
 
   // PRE-COMPUTE INDICATORS
   for (const cond of conditions) {
@@ -105,7 +152,7 @@ export function runDynamicBacktest(
       const smaKey = `OBV_SMA_${cond.period}`;
       if (!indicatorsData[key]) {
         indicatorsData[key] = calculateOBV(closes, volumes);
-        indicatorsData[smaKey] = calculateSMA(indicatorsData[key], cond.period);
+        indicatorsData[smaKey] = calculateSMA(series(indicatorsData, key), cond.period);
       }
     } else if (cond.type === 'ADX') {
       const key = `ADX_${cond.period}`;
@@ -122,227 +169,212 @@ export function runDynamicBacktest(
     }
   }
 
-  // Helper to evaluate buy condition for a specific index
-  const evaluateBuy = (cond: SingleStrategyParams, i: number, isCompound: boolean) => {
+  /** Is this condition's entry state satisfied at bar i? (level, not crossing) */
+  const evaluateBuy = (cond: SingleStrategyParams, i: number): boolean => {
     const price = closes[i];
-    const prevPrice = closes[i - 1];
 
     if (cond.type === 'RSI') {
-      const rsi = indicatorsData[`RSI_${cond.period}`];
-      return isCompound ? (rsi[i] <= cond.oversold) : (rsi[i] < cond.oversold && rsi[i - 1] >= cond.oversold);
+      return series(indicatorsData, `RSI_${cond.period}`)[i] <= cond.oversold;
     } else if (cond.type === 'SMA') {
-      const fast = indicatorsData[`SMA_${cond.fastPeriod}`];
-      const slow = indicatorsData[`SMA_${cond.slowPeriod}`];
-      return isCompound ? (fast[i] > slow[i]) : (fast[i] > slow[i] && fast[i - 1] <= slow[i - 1]);
+      return series(indicatorsData, `SMA_${cond.fastPeriod}`)[i] > series(indicatorsData, `SMA_${cond.slowPeriod}`)[i];
     } else if (cond.type === 'EMA') {
-      const fast = indicatorsData[`EMA_${cond.fastPeriod}`];
-      const slow = indicatorsData[`EMA_${cond.slowPeriod}`];
-      return isCompound ? (fast[i] > slow[i]) : (fast[i] > slow[i] && fast[i - 1] <= slow[i - 1]);
+      return series(indicatorsData, `EMA_${cond.fastPeriod}`)[i] > series(indicatorsData, `EMA_${cond.slowPeriod}`)[i];
     } else if (cond.type === 'MACD') {
-      const m = indicatorsData[`MACD_${cond.fastPeriod}_${cond.slowPeriod}_${cond.signalPeriod}`];
-      return isCompound ? (m.macdLine[i] > m.signalLine[i]) : (m.macdLine[i] > m.signalLine[i] && m.macdLine[i - 1] <= m.signalLine[i - 1]);
+      const m = lines(indicatorsData, `MACD_${cond.fastPeriod}_${cond.slowPeriod}_${cond.signalPeriod}`);
+      return m.macdLine[i] > m.signalLine[i];
     } else if (cond.type === 'BB') {
-      const b = indicatorsData[`BB_${cond.period}_${cond.multiplier}`];
-      return isCompound ? (price > b.upper[i]) : (price > b.upper[i] && prevPrice <= b.upper[i - 1]);
+      const b = lines(indicatorsData, `BB_${cond.period}_${cond.multiplier}`);
+      return cond.mode === 'reversion' ? price < b.lower[i] : price > b.upper[i];
     } else if (cond.type === 'STOCH') {
-      const s = indicatorsData[`STOCH_${cond.period}_${cond.smoothK}_${cond.smoothD}`];
-      return isCompound ? (s.kLine[i] <= cond.oversold) : (s.kLine[i] > s.dLine[i] && s.kLine[i - 1] <= s.dLine[i - 1] && s.kLine[i] <= cond.oversold);
+      return lines(indicatorsData, `STOCH_${cond.period}_${cond.smoothK}_${cond.smoothD}`).kLine[i] <= cond.oversold;
     } else if (cond.type === 'ATR') {
-      return true; // ATR is usually purely for trailing stops
+      return true; // ATR is purely a trailing-stop exit; never gates entry
     } else if (cond.type === 'VWAP') {
-      const vwap = indicatorsData[`VWAP_${cond.period}`];
-      return isCompound ? (price > vwap[i]) : (price > vwap[i] && prevPrice <= vwap[i - 1]);
+      return price > series(indicatorsData, `VWAP_${cond.period}`)[i];
     } else if (cond.type === 'OBV') {
-      const obv = indicatorsData[`OBV_MAIN`];
-      const sma = indicatorsData[`OBV_SMA_${cond.period}`];
-      return isCompound ? (obv[i] > sma[i]) : (obv[i] > sma[i] && obv[i - 1] <= sma[i - 1]);
+      return series(indicatorsData, `OBV_MAIN`)[i] > series(indicatorsData, `OBV_SMA_${cond.period}`)[i];
     } else if (cond.type === 'ADX') {
-      const adxData = indicatorsData[`ADX_${cond.period}`];
-      const isStrong = adxData.adx[i] > cond.strongThreshold && adxData.plusDI[i] > adxData.minusDI[i];
-      const wasStrong = adxData.adx[i - 1] > cond.strongThreshold && adxData.plusDI[i - 1] > adxData.minusDI[i - 1];
-      return isCompound ? isStrong : (isStrong && !wasStrong);
+      const a = lines(indicatorsData, `ADX_${cond.period}`);
+      return a.adx[i] > cond.strongThreshold && a.plusDI[i] > a.minusDI[i];
     } else if (cond.type === 'CCI') {
-      const cci = indicatorsData[`CCI_${cond.period}`];
-      return isCompound ? (cci[i] <= cond.oversold) : (cci[i] > cond.oversold && cci[i - 1] <= cond.oversold);
+      return series(indicatorsData, `CCI_${cond.period}`)[i] <= cond.oversold;
     } else if (cond.type === 'PSAR') {
-      const psar = indicatorsData[`PSAR_${cond.step}_${cond.maxStep}`];
-      return isCompound ? (price > psar[i]) : (price > psar[i] && prevPrice <= psar[i - 1]);
+      return price > series(indicatorsData, `PSAR_${cond.step}_${cond.maxStep}`)[i];
     } else if (cond.type === 'ICHIMOKU') {
-      const ichi = indicatorsData[`ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`];
-      // Price above both Senkou A and B (above the cloud)
-      const isAboveCloud = price > ichi.senkouA[i] && price > ichi.senkouB[i];
-      const wasAboveCloud = prevPrice > ichi.senkouA[i - 1] && prevPrice > ichi.senkouB[i - 1];
-      return isCompound ? isAboveCloud : (isAboveCloud && !wasAboveCloud);
+      const ichi = lines(indicatorsData, `ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`);
+      return price > ichi.senkouA[i] && price > ichi.senkouB[i];
     }
     return false;
   };
 
-  // Helper to evaluate sell condition for a specific index
-  const evaluateSell = (cond: SingleStrategyParams, i: number, isCompound: boolean) => {
+  /** Is this condition's exit state satisfied at bar i? */
+  const evaluateSell = (cond: SingleStrategyParams, i: number): boolean => {
     const price = closes[i];
-    const prevPrice = closes[i - 1];
 
     if (cond.type === 'RSI') {
-      const rsi = indicatorsData[`RSI_${cond.period}`];
-      return isCompound ? (rsi[i] >= cond.overbought) : (rsi[i] < cond.overbought && rsi[i - 1] >= cond.overbought);
+      return series(indicatorsData, `RSI_${cond.period}`)[i] >= cond.overbought;
     } else if (cond.type === 'SMA') {
-      const fast = indicatorsData[`SMA_${cond.fastPeriod}`];
-      const slow = indicatorsData[`SMA_${cond.slowPeriod}`];
-      return isCompound ? (fast[i] < slow[i]) : (fast[i] < slow[i] && fast[i - 1] >= slow[i - 1]);
+      return series(indicatorsData, `SMA_${cond.fastPeriod}`)[i] < series(indicatorsData, `SMA_${cond.slowPeriod}`)[i];
     } else if (cond.type === 'EMA') {
-      const fast = indicatorsData[`EMA_${cond.fastPeriod}`];
-      const slow = indicatorsData[`EMA_${cond.slowPeriod}`];
-      return isCompound ? (fast[i] < slow[i]) : (fast[i] < slow[i] && fast[i - 1] >= slow[i - 1]);
+      return series(indicatorsData, `EMA_${cond.fastPeriod}`)[i] < series(indicatorsData, `EMA_${cond.slowPeriod}`)[i];
     } else if (cond.type === 'MACD') {
-      const m = indicatorsData[`MACD_${cond.fastPeriod}_${cond.slowPeriod}_${cond.signalPeriod}`];
-      return isCompound ? (m.macdLine[i] < m.signalLine[i]) : (m.macdLine[i] < m.signalLine[i] && m.macdLine[i - 1] >= m.signalLine[i - 1]);
+      const m = lines(indicatorsData, `MACD_${cond.fastPeriod}_${cond.slowPeriod}_${cond.signalPeriod}`);
+      return m.macdLine[i] < m.signalLine[i];
     } else if (cond.type === 'BB') {
-      const b = indicatorsData[`BB_${cond.period}_${cond.multiplier}`];
-      return isCompound ? (price < b.middle[i]) : (price < b.middle[i] && prevPrice >= b.middle[i - 1]);
+      const b = lines(indicatorsData, `BB_${cond.period}_${cond.multiplier}`);
+      // Both modes take profit back at the mean, from their respective sides.
+      return cond.mode === 'reversion' ? price > b.middle[i] : price < b.middle[i];
     } else if (cond.type === 'STOCH') {
-      const s = indicatorsData[`STOCH_${cond.period}_${cond.smoothK}_${cond.smoothD}`];
-      return isCompound ? (s.kLine[i] >= cond.overbought) : (s.kLine[i] < s.dLine[i] && s.kLine[i - 1] >= s.dLine[i - 1] && s.kLine[i] >= cond.overbought);
+      return lines(indicatorsData, `STOCH_${cond.period}_${cond.smoothK}_${cond.smoothD}`).kLine[i] >= cond.overbought;
     } else if (cond.type === 'ATR') {
-      const atr = indicatorsData[`ATR_${cond.period}`];
-      const stopLossPrice = highestSinceEntry - (atr[i] * cond.multiplier);
-      return (price < stopLossPrice);
+      const atr = series(indicatorsData, `ATR_${cond.period}`)[i];
+      if (!Number.isFinite(atr)) return false;
+      return price < highestSinceEntry - atr * cond.multiplier;
     } else if (cond.type === 'VWAP') {
-      const vwap = indicatorsData[`VWAP_${cond.period}`];
-      return isCompound ? (price < vwap[i]) : (price < vwap[i] && prevPrice >= vwap[i - 1]);
+      return price < series(indicatorsData, `VWAP_${cond.period}`)[i];
     } else if (cond.type === 'OBV') {
-      const obv = indicatorsData[`OBV_MAIN`];
-      const sma = indicatorsData[`OBV_SMA_${cond.period}`];
-      return isCompound ? (obv[i] < sma[i]) : (obv[i] < sma[i] && obv[i - 1] >= sma[i - 1]);
+      return series(indicatorsData, `OBV_MAIN`)[i] < series(indicatorsData, `OBV_SMA_${cond.period}`)[i];
     } else if (cond.type === 'ADX') {
-      const adxData = indicatorsData[`ADX_${cond.period}`];
-      // Sell when trend breaks (minusDI crosses above plusDI)
-      const isWeak = adxData.minusDI[i] > adxData.plusDI[i];
-      const wasWeak = adxData.minusDI[i - 1] > adxData.plusDI[i - 1];
-      return isCompound ? isWeak : (isWeak && !wasWeak);
+      const a = lines(indicatorsData, `ADX_${cond.period}`);
+      return a.minusDI[i] > a.plusDI[i];
     } else if (cond.type === 'CCI') {
-      const cci = indicatorsData[`CCI_${cond.period}`];
-      return isCompound ? (cci[i] >= cond.overbought) : (cci[i] < cond.overbought && cci[i - 1] >= cond.overbought);
+      return series(indicatorsData, `CCI_${cond.period}`)[i] >= cond.overbought;
     } else if (cond.type === 'PSAR') {
-      const psar = indicatorsData[`PSAR_${cond.step}_${cond.maxStep}`];
-      return isCompound ? (price < psar[i]) : (price < psar[i] && prevPrice >= psar[i - 1]);
+      return price < series(indicatorsData, `PSAR_${cond.step}_${cond.maxStep}`)[i];
     } else if (cond.type === 'ICHIMOKU') {
-      const ichi = indicatorsData[`ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`];
-      // Sell when price falls below the cloud
-      const isBelowCloud = price < Math.min(ichi.senkouA[i], ichi.senkouB[i]);
-      const wasBelowCloud = prevPrice < Math.min(ichi.senkouA[i - 1], ichi.senkouB[i - 1]);
-      return isCompound ? isBelowCloud : (isBelowCloud && !wasBelowCloud);
+      const ichi = lines(indicatorsData, `ICHIMOKU_${cond.tenkan}_${cond.kijun}_${cond.senkouB}`);
+      return price < Math.min(ichi.senkouA[i], ichi.senkouB[i]);
     }
     return false;
   };
 
-  // EXECUTION LOOP
+  const allBuyTrue = (i: number) => conditions.every((c) => evaluateBuy(c, i));
+
+  /**
+   * Fill price for a signal observed at the close of bar i-1.
+   * You cannot know a bar's close and also trade at it, so fills happen at the
+   * NEXT bar's open (falling back to its close when opens are unavailable).
+   */
+  const fillPrice = (i: number): number => {
+    const o = opens?.[i];
+    return o != null && Number.isFinite(o) && o > 0 ? o : closes[i];
+  };
+
+  const c = oneWayCostPct;
+
+  // EXECUTION LOOP — signal is evaluated on bar i, executed on bar i+1.
   for (let i = 1; i < closes.length; i++) {
-    const price = closes[i];
-    const date = dates[i];
+    const isLastBar = i === closes.length - 1;
 
     if (!inTrade) {
-      let allBuyTrue = true;
+      let buyNow = allBuyTrue(i);
 
-      for (const cond of conditions) {
-        if (!evaluateBuy(cond, i, strategy.type === 'COMPOUND')) {
-          allBuyTrue = false;
-          break;
-        }
-      }
+      // Confluence trigger lock: fire only on the transition into all-true, so a
+      // condition set that stays satisfied for weeks does not re-enter every bar.
+      if (buyNow && allBuyTrue(i - 1)) buyNow = false;
 
-      // Confluence trigger lock (only buy if they weren't ALL true yesterday)
-      if (allBuyTrue && strategy.type === 'COMPOUND') {
-        let allBuyTrueYesterday = true;
-        for (const cond of conditions) {
-          if (!evaluateBuy(cond, i - 1, true)) {
-            allBuyTrueYesterday = false;
-            break;
-          }
-        }
-        if (allBuyTrueYesterday) allBuyTrue = false;
-      }
-
-      if (allBuyTrue) {
-        inTrade = true;
-        entryPrice = price;
-        entryDate = date;
-        entryIndex = i;
-        highestSinceEntry = price;
-        lowestSinceEntry = price; // Initialize to entry price
-        if (i === closes.length - 1) {
+      if (buyNow) {
+        if (isLastBar) {
+          // Signal fired on the final bar — it would be filled tomorrow.
           currentSignal = 'NEW_BUY';
-          lastSignalDate = date;
+          lastSignalDate = dates[i];
+        } else {
+          inTrade = true;
+          entryIndex = i + 1;
+          entryPrice = fillPrice(i + 1);
+          entryDate = dates[i + 1];
+          highestSinceEntry = entryPrice;
+          lowestSinceEntry = entryPrice;
         }
-      } else if (i === closes.length - 1) {
+      } else if (isLastBar) {
         currentSignal = 'WAITING';
-        lastSignalDate = date;
+        lastSignalDate = dates[i];
       }
-    } 
-    else {
-      let anySellTrue = false;
-      
-      if (price > highestSinceEntry) {
-        highestSinceEntry = price;
-      }
-      
-      // We use lows[i] because the stock could have dipped significantly intra-day before closing
-      if (lows[i] < lowestSinceEntry) {
-        lowestSinceEntry = lows[i];
-      }
+    } else {
+      if (closes[i] > highestSinceEntry) highestSinceEntry = closes[i];
+      // lows[i] because the stock can dip intra-day well below its close
+      if (lows[i] < lowestSinceEntry) lowestSinceEntry = lows[i];
 
-      for (const cond of conditions) {
-        if (evaluateSell(cond, i, strategy.type === 'COMPOUND')) {
-          anySellTrue = true;
-          break;
-        }
-      }
+      const sellNow = conditions.some((cond) => evaluateSell(cond, i));
 
-      if (anySellTrue && entryDate) {
-        inTrade = false;
-        const returnPct = ((price - entryPrice) / entryPrice) * 100;
-        const holdingPeriodDays = i - entryIndex;
-        const maxDrawdownPct = ((lowestSinceEntry - entryPrice) / entryPrice) * 100;
-        
-        trades.push({
-          entryDate,
-          entryPrice,
-          exitDate: date,
-          exitPrice: price,
-          returnPct,
-          holdingPeriodDays,
-          maxDrawdownPct
-        });
-        
-        if (i === closes.length - 1) {
+      if (sellNow && entryDate) {
+        if (isLastBar) {
           currentSignal = 'NEW_SELL';
-          lastSignalDate = date;
+          lastSignalDate = dates[i];
+        } else {
+          const exitPrice = fillPrice(i + 1);
+          const exitDate = dates[i + 1];
+          const grossReturnPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+          // Pay the cost on both legs: buy above the print, sell below it.
+          const netEntry = entryPrice * (1 + c);
+          const netExit = exitPrice * (1 - c);
+          const returnPct = ((netExit - netEntry) / netEntry) * 100;
+
+          trades.push({
+            entryDate,
+            entryPrice,
+            exitDate,
+            exitPrice,
+            grossReturnPct,
+            returnPct,
+            holdingPeriodDays: i + 1 - entryIndex,
+            maxDrawdownPct: ((lowestSinceEntry - entryPrice) / entryPrice) * 100,
+          });
+
+          inTrade = false;
+          entryDate = null;
         }
-      } else if (i === closes.length - 1) {
+      } else if (isLastBar) {
         currentSignal = 'HOLDING';
-        lastSignalDate = date;
+        lastSignalDate = dates[i];
       }
     }
   }
 
+  return summarizeTrades(trades, currentSignal, lastSignalDate);
+}
+
+/**
+ * Turn a list of closed trades into headline metrics.
+ *
+ * Metrics use NET returns with no adjustment. The previous code rewrote a winning
+ * trade's return to -10 when its intra-trade drawdown passed -10% and excluded it
+ * from the win count, which made "win rate" and "average return" incomparable to
+ * any external benchmark. Drawdown is now reported as its own metric rather than
+ * folded into the return.
+ */
+export function summarizeTrades(
+  trades: TradeResult[],
+  currentSignal: DynamicBacktestResult['currentSignal'] = 'WAITING',
+  lastSignalDate: Date | null = null
+): DynamicBacktestResult {
   if (trades.length === 0) {
-    return { totalTrades: 0, profitableTrades: 0, winRate: 0, averageReturn: 0, totalReturn: 0, maxDrawdown: 0, trades: [], currentSignal, lastSignalDate };
+    return {
+      totalTrades: 0, profitableTrades: 0, winRate: 0, averageReturn: 0,
+      totalReturn: 0, maxDrawdown: 0, equityMaxDrawdown: 0,
+      trades: [], currentSignal, lastSignalDate,
+    };
   }
 
-  const profitableTrades = trades.filter(t => t.returnPct > 0 && t.maxDrawdownPct > -10).length;
+  const profitableTrades = trades.filter((t) => t.returnPct > 0).length;
   const winRate = (profitableTrades / trades.length) * 100;
-  const averageReturn = trades.reduce((acc, t) => {
-    // Severe drawdown penalty: if a trade was wildly underwater, cap its return calculation to -10%
-    const effectiveReturn = (t.returnPct > 0 && t.maxDrawdownPct <= -10) ? -10 : t.returnPct;
-    return acc + effectiveReturn;
-  }, 0) / trades.length;
-  
-  const totalReturn = trades.reduce((acc, t) => {
-    const effectiveReturn = (t.returnPct > 0 && t.maxDrawdownPct <= -10) ? -10 : t.returnPct;
-    return acc + effectiveReturn;
-  }, 0);
-  
-  // Find the worst (minimum) maxDrawdownPct across all trades. If it's a winning strategy, it might still have temporary negative drawdowns.
-  const maxDrawdown = Math.min(...trades.map(t => t.maxDrawdownPct));
+  const averageReturn = trades.reduce((acc, t) => acc + t.returnPct, 0) / trades.length;
+
+  // Compounded, not summed: ten +5% trades is +62.9%, not +50%.
+  const growth = trades.reduce((acc, t) => acc * (1 + t.returnPct / 100), 1);
+  const totalReturn = (growth - 1) * 100;
+
+  // Peak-to-trough of the compounded equity curve — the drawdown an investor
+  // actually experiences, as opposed to the worst single trade.
+  let equity = 1;
+  let peak = 1;
+  let equityMaxDrawdown = 0;
+  for (const t of trades) {
+    equity *= 1 + t.returnPct / 100;
+    if (equity > peak) peak = equity;
+    const dd = ((equity - peak) / peak) * 100;
+    if (dd < equityMaxDrawdown) equityMaxDrawdown = dd;
+  }
 
   return {
     totalTrades: trades.length,
@@ -350,9 +382,69 @@ export function runDynamicBacktest(
     winRate,
     averageReturn,
     totalReturn,
-    maxDrawdown,
+    maxDrawdown: Math.min(...trades.map((t) => t.maxDrawdownPct)),
+    equityMaxDrawdown,
     trades,
     currentSignal,
-    lastSignalDate
+    lastSignalDate,
+  };
+}
+
+/** Fraction of history used for strategy selection. The rest is held back. */
+export const DEFAULT_TRAIN_FRACTION = 0.7;
+
+export type SplitBacktestResult = {
+  /** Selection window. Choose strategies on this. */
+  inSample: DynamicBacktestResult;
+  /** Held-back window. Judge strategies on this. */
+  outOfSample: DynamicBacktestResult;
+  /** Whole history. For display only — never select on it. */
+  full: DynamicBacktestResult;
+  splitDate: Date | null;
+};
+
+/**
+ * Run a backtest and split the resulting trades into a selection window and a
+ * held-back window.
+ *
+ * Without this, scanning ~46 strategies and keeping whatever cleared a 67% win
+ * rate is pure selection-on-outcome: run enough rules against one price series
+ * and some will clear any threshold by chance. A strategy that looks strong
+ * in-sample and collapses out-of-sample was noise.
+ *
+ * Trades are partitioned by entry date rather than re-running on a sliced
+ * series, so the out-of-sample window keeps full indicator warm-up. Indicators
+ * only ever look backwards, so this introduces no look-ahead.
+ */
+export function runSplitBacktest(
+  strategy: StrategyParams,
+  closes: number[],
+  highs: number[],
+  lows: number[],
+  volumes: number[],
+  dates: Date[],
+  opens?: number[],
+  oneWayCostPct: number = DEFAULT_ONE_WAY_COST_PCT,
+  trainFraction: number = DEFAULT_TRAIN_FRACTION
+): SplitBacktestResult {
+  const full = runDynamicBacktest(strategy, closes, highs, lows, volumes, dates, opens, oneWayCostPct);
+
+  const splitIdx = Math.floor(dates.length * trainFraction);
+  const splitDate = dates[splitIdx] ?? null;
+
+  if (!splitDate) {
+    return { inSample: full, outOfSample: summarizeTrades([]), full, splitDate: null };
+  }
+
+  const cut = splitDate.getTime();
+  const inTrades = full.trades.filter((t) => t.entryDate.getTime() < cut);
+  const outTrades = full.trades.filter((t) => t.entryDate.getTime() >= cut);
+
+  return {
+    full,
+    splitDate,
+    inSample: summarizeTrades(inTrades),
+    // The live signal belongs to the most recent window.
+    outOfSample: summarizeTrades(outTrades, full.currentSignal, full.lastSignalDate),
   };
 }

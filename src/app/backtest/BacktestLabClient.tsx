@@ -127,6 +127,12 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
   // Optimizer State
   const [optLoading, setOptLoading] = useState(false);
+  const [optMeta, setOptMeta] = useState<{
+    strategiesTested: number;
+    strategiesPassed: number;
+    strategiesHeldUp: number;
+    splitDate: string | null;
+  } | null>(null);
 
   // Batch Scanner State
   const [batchLoading, setBatchLoading] = useState(false);
@@ -134,21 +140,30 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const displayedResults = useMemo(() => {
     if (!batchResults) return [];
     const copy = [...batchResults];
-    
+
+    // Rank on the held-back window, never on the fitted one. Validated strategies
+    // outrank unvalidated ones regardless of how good the fitted numbers look.
+    const byOutOfSample = (a: any, b: any) => {
+      const aHeld = a.heldUp ? 1 : 0;
+      const bHeld = b.heldUp ? 1 : 0;
+      if (aHeld !== bHeld) return bHeld - aHeld;
+      const aN = a.oosTotalTrades ?? 0;
+      const bN = b.oosTotalTrades ?? 0;
+      if ((aN > 0) !== (bN > 0)) return bN > 0 ? 1 : -1;
+      if ((b.oosWinRate ?? 0) !== (a.oosWinRate ?? 0)) return (b.oosWinRate ?? 0) - (a.oosWinRate ?? 0);
+      return (b.oosAverageReturn ?? 0) - (a.oosAverageReturn ?? 0);
+    };
+
     if (batchSortBy === 'signal') {
       const priority: Record<string, number> = { 'NEW_BUY': 1, 'NEW_SELL': 2, 'HOLDING': 3, 'WAITING': 4 };
       copy.sort((a, b) => {
         const pA = priority[a.currentSignal || 'WAITING'] || 5;
         const pB = priority[b.currentSignal || 'WAITING'] || 5;
         if (pA !== pB) return pA - pB;
-        if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-        return b.totalReturn - a.totalReturn;
+        return byOutOfSample(a, b);
       });
     } else {
-      copy.sort((a, b) => {
-        if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-        return b.totalReturn - a.totalReturn;
-      });
+      copy.sort(byOutOfSample);
     }
     return copy;
   }, [batchResults, batchSortBy]);
@@ -365,6 +380,12 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
       const data = await res.json();
       if (data.success) {
         setOptResults(data.results);
+        setOptMeta({
+          strategiesTested: data.strategiesTested ?? 0,
+          strategiesPassed: data.strategiesPassed ?? 0,
+          strategiesHeldUp: data.strategiesHeldUp ?? 0,
+          splitDate: data.splitDate ?? null,
+        });
       } else {
         alert(data.error);
       }
@@ -743,6 +764,19 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
             )}
 
             {!batchLoading && batchResults && batchResults.length > 0 && (
+              <>
+              {/* The scan universe is today's index membership, so anything that
+                  was delisted or demoted is missing from history. Results are an
+                  upper bound, not an estimate. */}
+              <div className="mx-5 mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-semibold">Read these as an upper bound.</p>
+                <p className="mt-1 text-amber-800">
+                  The scan universe is the <strong>current</strong> index membership, so companies
+                  that were delisted or dropped from the index never appear — every strategy looks
+                  better than it would have in real time. Fitted columns were selected on;
+                  only the <strong>OOS</strong> columns are evidence.
+                </p>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
@@ -758,14 +792,20 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                       >
                         Live Signal {batchSortBy === 'signal' ? '↓' : '↕'}
                       </th>
-                      <th 
+                      <th
                         className="px-5 py-3 text-right cursor-pointer hover:bg-slate-200 transition-colors"
                         onClick={() => setBatchSortBy('winRate')}
-                        title="Click to sort by Win Rate"
+                        title="Win rate on the window the strategy was SELECTED on. Fitted — not evidence."
                       >
-                        Win Rate {batchSortBy === 'winRate' ? '↓' : '↕'}
+                        Win Rate <span className="normal-case text-slate-400">(fitted)</span> {batchSortBy === 'winRate' ? '↓' : '↕'}
                       </th>
-                      <th className="px-5 py-3 text-right">Avg Return</th>
+                      <th className="px-5 py-3 text-right" title="Average return on the fitted window">Avg Return <span className="normal-case text-slate-400">(fitted)</span></th>
+                      <th className="px-5 py-3 text-right bg-indigo-50/60" title="Win rate on held-back data the strategy was NOT selected on. This is the number that means something.">
+                        OOS Win Rate
+                      </th>
+                      <th className="px-5 py-3 text-right bg-indigo-50/60" title="Average net return per trade on held-back data, after costs">
+                        OOS Avg Return
+                      </th>
                       <th className="px-5 py-3 text-right">Max Drawdown</th>
                       <th className="px-5 py-3 text-right">Total Trades</th>
                       <th className="px-5 py-3 text-center">Action</th>
@@ -796,12 +836,33 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                             {(!res.currentSignal || res.currentSignal === 'WAITING') && <span className="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-slate-500 text-xs font-medium">WAITING</span>}
                           </td>
                           <td className="px-5 py-4 text-right">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${res.winRate >= 80 ? 'bg-green-100 text-green-700' : 'bg-green-50 text-green-600'}`}>
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
                               {res.winRate.toFixed(1)}%
                             </span>
                           </td>
-                          <td className={`px-5 py-4 text-right font-bold ${res.averageReturn > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          <td className={`px-5 py-4 text-right font-medium ${res.averageReturn > 0 ? 'text-slate-500' : 'text-slate-400'}`}>
                             {res.averageReturn > 0 ? '+' : ''}{res.averageReturn.toFixed(2)}%
+                          </td>
+                          {/* Held-back window. Emphasised over the fitted columns because
+                              the fitted ones were selected on and therefore prove nothing. */}
+                          <td className="px-5 py-4 text-right bg-indigo-50/40">
+                            {res.oosTotalTrades > 0 ? (
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${res.heldUp ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                                {res.oosWinRate.toFixed(1)}%
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700" title="No trades in the held-back window — this strategy was never validated">
+                                unvalidated
+                              </span>
+                            )}
+                          </td>
+                          <td className={`px-5 py-4 text-right font-bold bg-indigo-50/40 ${res.oosTotalTrades === 0 ? 'text-slate-400' : res.oosAverageReturn > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                            {res.oosTotalTrades > 0
+                              ? `${res.oosAverageReturn > 0 ? '+' : ''}${res.oosAverageReturn.toFixed(2)}%`
+                              : '—'}
+                            {res.oosTotalTrades > 0 && (
+                              <span className="block text-[10px] font-normal text-slate-400">{res.oosTotalTrades} trade(s)</span>
+                            )}
                           </td>
                           <td className="px-5 py-4 text-right font-bold text-red-500">
                             {res.maxDrawdown ? res.maxDrawdown.toFixed(2) : '0.00'}%
@@ -820,7 +881,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                         </tr>
                         {expandedRow === idx && (
                           <tr className="bg-slate-50 border-b border-slate-200">
-                            <td colSpan={9} className="px-5 py-6">
+                            <td colSpan={12} className="px-5 py-6">
                               <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
                                 <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                                   <Settings2 className="h-4 w-4 text-slate-500" /> 
@@ -884,6 +945,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
         </Card>
@@ -1237,29 +1299,54 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
           {optResults && (
             <Card className="overflow-hidden shadow-lg border-slate-200">
-              <div className="p-5 border-b border-slate-100 bg-white flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-extrabold text-slate-800">Top 100 Compound Strategies for {symbol}</h3>
-                  <p className="text-sm text-slate-500 font-medium">Ranked by Average Return per Trade. Win Rate ≥ 67%.</p>
+              <div className="p-5 border-b border-slate-100 bg-white">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-slate-800">Strategies for {symbol}</h3>
+                    <p className="text-sm text-slate-500 font-medium">
+                      Selected on history up to the split date, ranked by performance on data after it.
+                    </p>
+                  </div>
                 </div>
+
+                {/* Selection ratio. Without it, "12 strategies cleared 67%" reads as
+                    discovery when it may just be what 46 tries against one price
+                    series produces by chance. */}
+                {optMeta && (
+                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <p className="font-semibold">
+                      {optMeta.strategiesTested} strategies tested → {optMeta.strategiesPassed} cleared
+                      the 67% filter on the selection window → <span className="font-extrabold">{optMeta.strategiesHeldUp} stayed profitable on held-back data</span>.
+                    </p>
+                    <p className="mt-1 text-amber-800">
+                      Testing {optMeta.strategiesTested} rules against one price series will always
+                      surface some winners by chance. Only the held-back (OOS) columns are evidence.
+                      {optMeta.splitDate && (
+                        <> Split at {new Date(optMeta.splitDate).toLocaleDateString()}.</>
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
-              
+
+
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider text-xs">
                     <tr>
                       <th className="px-5 py-4 w-12 text-center">Rank</th>
                       <th className="px-5 py-4">Confluence Components (AND)</th>
-                      <th className="px-5 py-4 text-center">Trades</th>
-                      <th className="px-5 py-4 text-center">Win Rate</th>
+                      <th className="px-5 py-4 text-center" title="Trades in the window the strategy was selected on">Trades <span className="normal-case text-slate-400">(fitted)</span></th>
+                      <th className="px-5 py-4 text-center" title="Win rate on the window the strategy was selected on — fitted, not evidence">Win Rate <span className="normal-case text-slate-400">(fitted)</span></th>
+                      <th className="px-5 py-4 text-center bg-indigo-50/60" title="Win rate on held-back data the strategy was NOT selected on">OOS Win Rate</th>
+                      <th className="px-5 py-4 text-right bg-indigo-50/60" title="Average net return per trade on held-back data, after costs">OOS Avg Return</th>
                       <th className="px-5 py-4 text-right">Max DD</th>
-                      <th className="px-5 py-4 text-right">Avg Return</th>
                       <th className="px-5 py-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {optResults.length === 0 ? (
-                      <tr><td colSpan={6} className="text-center py-12 text-slate-400 font-medium">No compound strategies found with ≥ 67% win rate for this stock.</td></tr>
+                      <tr><td colSpan={8} className="text-center py-12 text-slate-400 font-medium">No strategy cleared a 67% win rate on the selection window for this stock.</td></tr>
                     ) : (
                       optResults.map((res, idx) => {
                         const conditions = res.strategy.type === 'COMPOUND' ? res.strategy.conditions : [res.strategy];
@@ -1285,17 +1372,34 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                                   ))}
                                 </div>
                               </td>
-                              <td className="px-5 py-4 text-center font-medium text-slate-700">{res.stats.totalTrades}</td>
+                              <td className="px-5 py-4 text-center font-medium text-slate-500">{res.inSample.totalTrades}</td>
                               <td className="px-5 py-4 text-center">
-                                <span className="inline-flex items-center justify-center bg-green-100 text-green-700 font-bold px-2.5 py-1 rounded-full text-xs border border-green-200">
-                                  {res.stats.winRate.toFixed(1)}%
+                                <span className="inline-flex items-center justify-center bg-slate-100 text-slate-500 font-medium px-2.5 py-1 rounded-full text-xs border border-slate-200">
+                                  {res.inSample.winRate.toFixed(1)}%
                                 </span>
+                              </td>
+                              {/* Held-back window — the only columns here that are evidence. */}
+                              <td className="px-5 py-4 text-center bg-indigo-50/40">
+                                {res.outOfSample.totalTrades > 0 ? (
+                                  <span className={`inline-flex items-center justify-center font-bold px-2.5 py-1 rounded-full text-xs border ${res.outOfSample.winRate >= 50 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                                    {res.outOfSample.winRate.toFixed(1)}%
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center bg-amber-50 text-amber-700 font-medium px-2.5 py-1 rounded-full text-xs border border-amber-200" title="No trades in the held-back window — never validated">
+                                    unvalidated
+                                  </span>
+                                )}
+                              </td>
+                              <td className={`px-5 py-4 text-right font-bold bg-indigo-50/40 ${res.outOfSample.totalTrades === 0 ? 'text-slate-400' : res.outOfSample.averageReturn > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                {res.outOfSample.totalTrades > 0
+                                  ? `${res.outOfSample.averageReturn > 0 ? '+' : ''}${res.outOfSample.averageReturn.toFixed(2)}%`
+                                  : '—'}
+                                {res.outOfSample.totalTrades > 0 && (
+                                  <span className="block text-[10px] font-normal text-slate-400">{res.outOfSample.totalTrades} trade(s)</span>
+                                )}
                               </td>
                               <td className="px-5 py-4 text-right font-bold text-red-500">
                                 {res.stats.maxDrawdown ? res.stats.maxDrawdown.toFixed(2) : '0.00'}%
-                              </td>
-                              <td className="px-5 py-4 text-right font-bold text-green-600">
-                                +{res.stats.averageReturn.toFixed(2)}%
                               </td>
                               <td className="px-5 py-4 text-center">
                                 <button 
@@ -1310,7 +1414,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                             {/* Expandable Trade Ledger */}
                             {expandedOptCard === idx && (
                               <tr>
-                                <td colSpan={7} className="p-0 border-b border-slate-200">
+                                <td colSpan={8} className="p-0 border-b border-slate-200">
                                   <div className="bg-slate-900 border-x-4 border-yellow-400 p-0 max-h-80 overflow-y-auto">
                                     <table className="w-full text-xs text-left text-slate-300">
                                       <thead className="bg-slate-800 text-slate-400 font-semibold sticky top-0 uppercase tracking-wider text-[10px]">
