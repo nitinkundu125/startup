@@ -890,7 +890,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                       <th className="px-5 py-3 text-right bg-indigo-50/60" title="Average net return per trade on held-back data, after costs">
                         OOS Avg Return
                       </th>
-                      <th className="px-5 py-3 text-right">Max Drawdown</th>
+                      <th className="px-5 py-3 text-right" title="Worst any single trade went underwater, in the fitted window">Max DD <span className="normal-case text-slate-400">(fitted)</span></th>
+                      <th className="px-5 py-3 text-right bg-indigo-50/60" title="Worst any single trade went underwater, in the held-back window">Max DD <span className="normal-case text-slate-400">(OOS)</span></th>
                       <th className="px-5 py-3 text-right">Total Trades</th>
                       <th className="px-5 py-3 text-center">Action</th>
                     </tr>
@@ -951,8 +952,16 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                               <span className="block text-[10px] font-normal text-slate-400">{res.oosTotalTrades} trade(s)</span>
                             )}
                           </td>
-                          <td className="px-5 py-4 text-right font-bold text-red-500">
-                            {res.maxDrawdown ? res.maxDrawdown.toFixed(2) : '0.00'}%
+                          <td className="px-5 py-4 text-right font-medium text-slate-500">
+                            {res.maxDrawdown ? res.maxDrawdown.toFixed(1) : '0.0'}%
+                          </td>
+                          {/* Held-back drawdown. Same definition as the fitted
+                              column so the two are directly comparable — a much
+                              deeper OOS drawdown means the risk was understated. */}
+                          <td className={`px-5 py-4 text-right font-bold bg-indigo-50/40 ${res.oosTotalTrades > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                            {res.oosTotalTrades > 0
+                              ? `${(res.oosMaxDrawdown ?? 0).toFixed(1)}%`
+                              : '—'}
                           </td>
                           <td className="px-5 py-4 text-right text-slate-500 font-medium">
                             {res.totalTrades}
@@ -968,7 +977,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                         </tr>
                         {expandedRow === idx && (
                           <tr className="bg-slate-50 border-b border-slate-200">
-                            <td colSpan={12} className="px-5 py-6">
+                            <td colSpan={13} className="px-5 py-6">
                               <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
                                 <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                                   <Settings2 className="h-4 w-4 text-slate-500" /> 
@@ -1413,13 +1422,14 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                       <th className="px-5 py-4 text-center" title="Win rate on the window the strategy was selected on — fitted, not evidence">Win Rate <span className="normal-case text-slate-400">(fitted)</span></th>
                       <th className="px-5 py-4 text-center bg-indigo-50/60" title="Win rate on held-back data the strategy was NOT selected on">OOS Win Rate</th>
                       <th className="px-5 py-4 text-right bg-indigo-50/60" title="Average net return per trade on held-back data, after costs">OOS Avg Return</th>
-                      <th className="px-5 py-4 text-right">Max DD</th>
+                      <th className="px-5 py-4 text-right" title="Worst any single trade went underwater, fitted window">Max DD <span className="normal-case text-slate-400">(fitted)</span></th>
+                      <th className="px-5 py-4 text-right bg-indigo-50/60" title="Worst any single trade went underwater, held-back window">Max DD <span className="normal-case text-slate-400">(OOS)</span></th>
                       <th className="px-5 py-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {optResults.length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-12 text-slate-400 font-medium">No strategy cleared a 67% win rate on the selection window for this stock.</td></tr>
+                      <tr><td colSpan={9} className="text-center py-12 text-slate-400 font-medium">No strategy cleared a 67% win rate on the selection window for this stock.</td></tr>
                     ) : (
                       optResults.map((res, idx) => {
                         const conditions = res.strategy.type === 'COMPOUND' ? res.strategy.conditions : [res.strategy];
@@ -1474,8 +1484,13 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                                   <span className="block text-[10px] font-normal text-slate-400">{res.outOfSample.totalTrades} trade(s)</span>
                                 )}
                               </td>
-                              <td className="px-5 py-4 text-right font-bold text-red-500">
-                                {res.stats.maxDrawdown ? res.stats.maxDrawdown.toFixed(2) : '0.00'}%
+                              <td className="px-5 py-4 text-right font-medium text-slate-500">
+                                {res.inSample.maxDrawdown ? res.inSample.maxDrawdown.toFixed(1) : '0.0'}%
+                              </td>
+                              <td className={`px-5 py-4 text-right font-bold bg-indigo-50/40 ${res.outOfSample.totalTrades > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                                {res.outOfSample.totalTrades > 0
+                                  ? `${(res.outOfSample.maxDrawdown ?? 0).toFixed(1)}%`
+                                  : '—'}
                               </td>
                               <td className="px-5 py-4 text-center">
                                 <button 
@@ -1490,7 +1505,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                             {/* Expandable Trade Ledger */}
                             {expandedOptCard === idx && (
                               <tr>
-                                <td colSpan={8} className="p-0 border-b border-slate-200">
+                                <td colSpan={9} className="p-0 border-b border-slate-200">
                                   <div className="bg-slate-900 border-x-4 border-yellow-400 p-0 max-h-80 overflow-y-auto">
                                     <table className="w-full text-xs text-left text-slate-300">
                                       <thead className="bg-slate-800 text-slate-400 font-semibold sticky top-0 uppercase tracking-wider text-[10px]">

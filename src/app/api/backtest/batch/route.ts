@@ -19,13 +19,20 @@ export type BatchOptimizerResult = {
   profitableTrades: number;
   winRate: number;
   averageReturn: number;
-  totalReturn: number;
+  /** Worst single-trade drawdown, %. Deepest a position went underwater. */
   maxDrawdown: number;
+  /** Worst peak-to-trough of the compounded equity curve, %. */
+  equityMaxDrawdown: number;
+  totalReturn: number;
   /** Held-back window — judge the strategy on these, not the ones above. */
   oosTotalTrades: number;
   oosWinRate: number;
   oosAverageReturn: number;
   oosTotalReturn: number;
+  /** Same two definitions as above, so fitted and OOS are directly comparable.
+   *  Previously only the equity figure was exposed for OOS while the fitted
+   *  column was worst-trade — two different metrics sitting side by side. */
+  oosMaxDrawdown: number;
   oosEquityMaxDrawdown: number;
   /** True when the strategy stayed profitable on data it was not selected on. */
   heldUp: boolean;
@@ -136,6 +143,8 @@ export async function POST(request: Request) {
               averageReturn: inSample.averageReturn,
               totalReturn: inSample.totalReturn,
               maxDrawdown: inSample.maxDrawdown,
+              equityMaxDrawdown: inSample.equityMaxDrawdown,
+              oosMaxDrawdown: outOfSample.maxDrawdown,
               oosTotalTrades: outOfSample.totalTrades,
               oosWinRate: outOfSample.winRate,
               oosAverageReturn: outOfSample.averageReturn,
