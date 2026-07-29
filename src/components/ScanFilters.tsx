@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { Save, Trash2, Check, Activity } from 'lucide-react';
 
 /**
@@ -60,7 +61,7 @@ export function ScanFilters({
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!signal?.aborted) setBusy('loading');
     try {
-      const res = await fetch('/api/lab/filters', { signal });
+      const res = await apiFetch('/api/lab/filters', { signal });
       const data = await res.json();
       if (!signal?.aborted && data.success) setPresets(data.filters);
     } catch { /* presets are a convenience; never block the scanner */ }
@@ -98,7 +99,7 @@ export function ScanFilters({
     setError(null);
     setBusy('saving');
     try {
-    const res = await fetch('/api/lab/filters', {
+    const res = await apiFetch('/api/lab/filters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, ...values }),
@@ -123,7 +124,7 @@ export function ScanFilters({
     if (!p || busy || !window.confirm(`Delete the filter "${p.name}"?`)) return;
     setBusy('deleting');
     try {
-      await fetch(`/api/lab/filters?id=${p.id}`, { method: 'DELETE' });
+      await apiFetch(`/api/lab/filters?id=${p.id}`, { method: 'DELETE' });
       setSelected('');
       onChange(EMPTY_FILTERS);
       await load();

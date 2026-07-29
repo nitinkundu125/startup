@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Settings } from 'lucide-react';
 import { requireUser, userHasPortfolioData } from '@/lib/auth';
 import { LogoutButton } from '@/components/LogoutButton';
 import { NavLinks } from '@/components/NavLinks';
@@ -43,6 +43,14 @@ export async function NavBar() {
           <span className="hidden max-w-[140px] truncate text-xs text-[var(--color-muted)] md:inline">
             {user.email}
           </span>
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            title="Settings"
+            className="rounded-md p-2 text-[var(--color-muted)] hover:bg-slate-50 hover:text-[var(--color-foreground)]"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
           <LogoutButton />
         </nav>
       </div>

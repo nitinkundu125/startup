@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, Fragment, useMemo, useEffect } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Activity, Zap, ShieldCheck, Plus, Settings2 } from 'lucide-react';
@@ -111,7 +112,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     setBuySaving(true);
     setBuyError(null);
     try {
-      const res = await fetch('/api/lab/positions', {
+      const res = await apiFetch('/api/lab/positions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,7 +191,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
     setIsSearching(true);
     try {
-      const res = await fetch(`/api/watchlist/search?q=${encodeURIComponent(query)}`);
+      const res = await apiFetch(`/api/watchlist/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
       setSearchResults(data.results || []);
     } catch (e) {
@@ -211,7 +212,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     if (!newWatchlistSymbol) return;
     setIsAddingWatchlist(true);
     try {
-      const res = await fetch('/api/watchlist', {
+      const res = await apiFetch('/api/watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: newWatchlistSymbol })
@@ -249,7 +250,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
     if (selectedIndex === 'watchlist') return handleRunBatch(watchlist.map((w) => w.symbol));
     if (selectedIndex === 'pinned') {
-      const held = await fetch('/api/lab/tracked').then(r => r.json()).catch(() => null);
+      const held = await apiFetch('/api/lab/tracked').then(r => r.json()).catch(() => null);
       const symbols: string[] = held?.success ? [...new Set(held.rows.map((r: any) => r.symbol))] as string[] : [];
       return handleRunBatch(symbols);
     }
@@ -263,7 +264,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     };
 
     try {
-      const res = await fetch(`/api/backtest/symbols?index=${encodeURIComponent(selectedIndex)}`);
+      const res = await apiFetch(`/api/backtest/symbols?index=${encodeURIComponent(selectedIndex)}`);
       const data = await res.json();
       if (data?.success && Array.isArray(data.symbols) && data.symbols.length > 0) {
         setUniverseSource(
@@ -301,7 +302,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         const chunk = symbolsToScan.slice(i, i + CHUNK_SIZE);
         
         try {
-          const res = await fetch('/api/backtest/batch', {
+          const res = await apiFetch('/api/backtest/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbols: chunk, ...filters })
@@ -349,7 +350,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     if (!expandedTrades[idx]) {
       setLoadingTrades(prev => ({ ...prev, [idx]: true }));
       try {
-        const res = await fetch('/api/backtest/custom', {
+        const res = await apiFetch('/api/backtest/custom', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ symbol, strategy })

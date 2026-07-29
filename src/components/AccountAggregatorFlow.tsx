@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { useRouter } from 'next/navigation';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -27,7 +28,7 @@ export function AccountAggregatorFlow() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/aa', {
+      const res = await apiFetch('/api/aa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'request-consent', phone }),
@@ -51,7 +52,7 @@ export function AccountAggregatorFlow() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/aa', {
+      const res = await apiFetch('/api/aa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'verify', consentId, otp }),

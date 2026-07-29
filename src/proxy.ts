@@ -28,6 +28,19 @@ export async function proxy(request: NextRequest) {
     if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith('/mf')) {
       return NextResponse.next();
     }
+
+    // An API call gets 401, not a redirect. Redirecting a fetch() returns the
+    // login page's HTML, res.json() throws, the client's catch swallows it, and
+    // the user stares at stale data with no hint their session expired. A status
+    // code the caller can act on is the difference between "session expired,
+    // sign in again" and a screen that quietly stops updating.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'Session expired', code: 'SESSION_EXPIRED' },
+        { status: 401 }
+      );
+    }
+
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('from', pathname);
     return NextResponse.redirect(loginUrl);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { useRouter } from 'next/navigation';
 import { Activity, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +18,7 @@ export function ClearDataButton() {
     setError('');
 
     try {
-      const res = await fetch('/api/portfolio/clear', { method: 'POST' });
+      const res = await apiFetch('/api/portfolio/clear', { method: 'POST' });
       const data = await res.json();
 
       if (!res.ok) {

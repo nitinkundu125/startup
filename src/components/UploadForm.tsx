@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { useRouter } from 'next/navigation';
 import { Activity,
   Upload,
@@ -71,7 +72,7 @@ export function UploadForm({ hasExistingData, importType = 'STOCK' }: { hasExist
     formData.append('importType', importType);
 
     try {
-      const res = await fetch('/api/import', { method: 'POST', body: formData });
+      const res = await apiFetch('/api/import', { method: 'POST', body: formData });
       const data: ImportResponse = await res.json();
 
       if (res.status === 401 && data.sessionExpired) {

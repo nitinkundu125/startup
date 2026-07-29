@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { useRouter } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -44,7 +45,7 @@ export function RefreshLtpButton({
     setError(null);
 
     try {
-      const res = await fetch('/api/portfolio/ltp', { method: 'POST' });
+      const res = await apiFetch('/api/portfolio/ltp', { method: 'POST' });
       const data: LtpResponse = await res.json();
 
       if (res.status === 401 && data.sessionExpired) {

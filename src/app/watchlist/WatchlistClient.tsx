@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { useRouter } from 'next/navigation';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -73,7 +74,7 @@ export function WatchlistClient({
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/watchlist/search?q=${encodeURIComponent(query)}`);
+        const res = await apiFetch(`/api/watchlist/search?q=${encodeURIComponent(query)}`);
         const data = await res.json();
         if (data.results) {
           setSearchResults(data.results);
@@ -98,7 +99,7 @@ export function WatchlistClient({
         finalSymbol += '.NS';
       }
 
-      await fetch('/api/watchlist', {
+      await apiFetch('/api/watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol: finalSymbol })
@@ -115,7 +116,7 @@ export function WatchlistClient({
 
   async function handleRemoveSymbol(symbol: string) {
     try {
-      await fetch('/api/watchlist', {
+      await apiFetch('/api/watchlist', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol })
@@ -129,7 +130,7 @@ export function WatchlistClient({
   async function handleRunScreener() {
     setScreening(true);
     try {
-      await fetch('/api/cron/run-screener', { method: 'POST' });
+      await apiFetch('/api/cron/run-screener', { method: 'POST' });
       router.refresh();
     } catch (err) {
       console.error(err);

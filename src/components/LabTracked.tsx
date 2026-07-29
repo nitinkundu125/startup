@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api-fetch';
 import { Activity } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -57,7 +58,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/lab/tracked', { signal });
+      const res = await apiFetch('/api/lab/tracked', { signal });
       const data = await res.json();
       if (signal?.aborted) return;
       if (data.success) { setRows(data.rows); setSummary(data.summary); setClosed(data.closed ?? []); }
@@ -81,7 +82,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
     const price = window.prompt(`Exit price for ${r.symbol.replace('.NS', '')}?`, suggested);
     if (!price) return;
     setBusy(r.id);
-    await fetch(`/api/lab/positions/${r.id}`, {
+    await apiFetch(`/api/lab/positions/${r.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ exitPrice: price }),
@@ -93,7 +94,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
   async function remove(r: Row) {
     if (!window.confirm(`Delete the ${r.symbol.replace('.NS', '')} position? This cannot be undone.`)) return;
     setBusy(r.id);
-    await fetch(`/api/lab/positions/${r.id}`, { method: 'DELETE' });
+    await apiFetch(`/api/lab/positions/${r.id}`, { method: 'DELETE' });
     await load();
     setBusy(null);
   }
