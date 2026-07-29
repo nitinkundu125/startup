@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, Pin, Star, X } from 'lucide-react';
 import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
-import { LabPositions } from '@/components/LabPositions';
+import { LabTracked } from '@/components/LabTracked';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
 type WatchlistItem = {
@@ -716,71 +716,16 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         </div>
       )}
 
-      <LabPositions refreshToken={positionsToken} />
+      <LabTracked
+        refreshToken={positionsToken}
+        onBuy={(symbol, strategyName, price) =>
+          openBuy({ symbol, strategyName, lastClose: price ?? undefined })
+        }
+      />
 
-      {pinnedStrategies.length > 0 && (
-        <Card className="bg-white border-slate-200 mb-8 overflow-hidden shadow-sm p-0">
-          <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
-              Pinned Strategy Alerts
-            </h2>
-            <Button onClick={runDailyScript} disabled={runningCron} size="sm" variant="secondary" className="gap-2">
-              <Activity className={`h-4 w-4 ${runningCron ? 'animate-spin' : ''}`} />
-              {runningCron ? 'Scanning Live Prices...' : 'Run Daily Screener'}
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-white text-slate-500 font-medium border-b border-slate-100">
-                <tr>
-                  <th className="px-4 py-3">Symbol</th>
-                  <th className="px-4 py-3">Strategy</th>
-                  <th className="px-4 py-3">Live Signal</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {[...pinnedStrategies]
-                  .sort((a, b) => (b.isNewSignal ? 1 : 0) - (a.isNewSignal ? 1 : 0))
-                  .map((p) => (
-                  <tr key={p.id || `${p.symbol}-${p.strategy}`} className={`transition-colors ${p.isNewSignal ? 'bg-yellow-50 hover:bg-yellow-100' : 'hover:bg-slate-50'}`}>
-                    <td className="px-4 py-3 font-bold text-slate-800">{p.symbol}</td>
-                    <td className="px-4 py-3 font-medium text-blue-600">{p.strategy}</td>
-                    <td className="px-4 py-3">
-                      {p.lastSignal ? (
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center justify-center font-bold px-2.5 py-1 rounded-full text-xs border ${p.lastSignal.includes('BUY') ? 'bg-green-100 text-green-700 border-green-200' : p.lastSignal.includes('SELL') ? 'bg-red-100 text-red-700 border-red-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                            {p.lastSignal}
-                          </span>
-                          {p.isNewSignal && (
-                            <span className="flex h-3 w-3 relative">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 italic text-xs">Run scanner to evaluate</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {p.isNewSignal && (
-                        <button onClick={() => ackSignal(p.id)} className="text-xs font-semibold text-slate-500 hover:text-slate-800 underline mr-4">
-                          Dismiss Alert
-                        </button>
-                      )}
-                      <button onClick={() => handleTogglePin(p.symbol, p.strategy)} className="text-slate-400 hover:text-red-500 transition-colors">
-                        <X className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
+      {/* The pinned panel is gone: pinning and buying are one list now
+          (LabTracked), where the same row shows WATCHING or HOLDING. Two panels
+          meant anything bought appeared in both and neither said which. */}
 
       {activeTab !== 'batch' && (
         <Card className="bg-slate-50 border-slate-200">

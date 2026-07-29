@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Throwaway investigation scripts — already excluded from tsconfig. Linting
+    // them buries real findings under noise from code that is never shipped.
+    "scratch/**",
   ]),
 ]);
 
