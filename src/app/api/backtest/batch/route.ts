@@ -32,6 +32,8 @@ export type BatchOptimizerResult = {
   splitDate: string | null;
   strategy: StrategyParams;
   currentSignal?: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
+  /** Strategies that traded on this symbol before the per-symbol cap. First row only. */
+  matchedTotal?: number;
 };
 
 import {
@@ -43,6 +45,35 @@ import {
 } from '@/lib/backtest-constants';
 
 const MAX_SYMBOLS_PER_BATCH = 50;
+
+/**
+ * Strategies returned per symbol.
+ *
+ * With 277 strategies, roughly 262 produce trades on a typical stock. Across a
+ * Nifty 500 scan that is ~130,000 rows into a single un-virtualised table —
+ * over a million DOM nodes, which hangs the browser rather than rendering.
+ *
+ * Only the best few per symbol are useful anyway: nobody reads the 200th-ranked
+ * strategy for a stock. The rest are counted and reported, never silently
+ * dropped, so the numbers still add up.
+ */
+const MAX_RESULTS_PER_SYMBOL = 10;
+
+/**
+ * Ranking, shared by the per-symbol cap and the final ordering.
+ *
+ * A held-back sample too small to mean anything sorts below every properly
+ * validated result however good it looks — one winning trade is a 100% win rate
+ * and proves nothing.
+ */
+function rankByOutOfSample(a: BatchOptimizerResult, b: BatchOptimizerResult): number {
+  const av = a.oosTotalTrades >= MIN_OOS_TRADES;
+  const bv = b.oosTotalTrades >= MIN_OOS_TRADES;
+  if (av !== bv) return av ? -1 : 1;
+  if (!av) return b.oosTotalTrades - a.oosTotalTrades;
+  if (b.oosWinRate !== a.oosWinRate) return b.oosWinRate - a.oosWinRate;
+  return b.oosAverageReturn - a.oosAverageReturn;
+}
 
 export async function POST(request: Request) {
   const user = await requireValidUser();
@@ -119,18 +150,27 @@ export async function POST(request: Request) {
             });
           }
 
-          // Save to cache
+          // Keep only the best few for this symbol. `matchedTotal` rides along on
+          // the first row so the UI can say how many were considered — a capped
+          // list that looks complete is worse than no cap at all.
+          const matchedTotal = symbolResults.length;
+          symbolResults.sort(rankByOutOfSample);
+          const capped = symbolResults.slice(0, MAX_RESULTS_PER_SYMBOL);
+          if (capped.length > 0) capped[0].matchedTotal = matchedTotal;
+
+          // Cache the capped set — it is what gets served, so caching the full
+          // list would only make same-day rescans slower for no benefit.
           await prisma.scanCache.upsert({
             where: { symbol_dateKey: { symbol, dateKey } },
-            update: { results: JSON.stringify(symbolResults) },
+            update: { results: JSON.stringify(capped) },
             create: {
               symbol,
               dateKey,
-              results: JSON.stringify(symbolResults)
+              results: JSON.stringify(capped)
             }
           });
 
-          return symbolResults;
+          return capped;
         } catch (e) {
           console.error(`Failed to process ${symbol}:`, e);
           return null;
@@ -143,23 +183,19 @@ export async function POST(request: Request) {
       }
     }
 
-    // Rank by out-of-sample performance. A held-back sample too small to mean
-    // anything sorts below every properly-validated result, however good its
-    // numbers look — one winning trade is a 100% win rate and proves nothing.
-    batchResults.sort((a, b) => {
-      const av = a.oosTotalTrades >= MIN_OOS_TRADES;
-      const bv = b.oosTotalTrades >= MIN_OOS_TRADES;
-      if (av !== bv) return av ? -1 : 1;
-      if (!av) return b.oosTotalTrades - a.oosTotalTrades;
-      if (b.oosWinRate !== a.oosWinRate) return b.oosWinRate - a.oosWinRate;
-      return b.oosAverageReturn - a.oosAverageReturn;
-    });
+    batchResults.sort(rankByOutOfSample);
+
+    const matchedTotal = batchResults.reduce((n, r) => n + (r.matchedTotal ?? 0), 0);
 
     return NextResponse.json({
       success: true,
       results: batchResults,
       strategiesPerSymbol: MASTER_STRATEGY_LIBRARY.length,
       symbolsScanned: targetSymbols.length,
+      // How many strategy/symbol pairs actually traded, vs how many are being
+      // returned. Without this the cap reads as "these are all the matches".
+      matchedTotal,
+      returnedPerSymbol: MAX_RESULTS_PER_SYMBOL,
       // Surfaced rather than silently dropped — a truncated scan should not read
       // as full coverage.
       symbolsSkipped: truncated > 0 ? truncated : 0,

@@ -138,6 +138,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const [batchLoading, setBatchLoading] = useState(false);
   /** Provenance of the scanned universe — synced from NSE, or the built-in list. */
   const [universeSource, setUniverseSource] = useState<string | null>(null);
+  /** How many strategy/symbol pairs traded, before the server's per-symbol cap. */
+  const [matchedTotal, setMatchedTotal] = useState(0);
+  /** Rows actually rendered. The table is not virtualised, so this is a hard guard. */
+  const [rowLimit, setRowLimit] = useState(200);
 
   const displayedResults = useMemo(() => {
     if (!batchResults) return [];
@@ -170,6 +174,28 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
     return copy;
   }, [batchResults, batchSortBy]);
+
+  /**
+   * Rows actually handed to the DOM.
+   *
+   * The table is a plain <table> with no virtualisation, so an unbounded map is
+   * the difference between a page and a hung tab: a Nifty 500 scan matches tens
+   * of thousands of pairs. The server already caps per symbol; this caps what
+   * gets painted.
+   */
+  const filteredResults = useMemo(
+    () =>
+      displayedResults.filter(
+        (res: any) =>
+          !showPinnedOnly ||
+          pinnedStrategies.some((p) => p.symbol === res.symbol && p.strategy === res.strategyName)
+      ),
+    [displayedResults, showPinnedOnly, pinnedStrategies]
+  );
+  const visibleResults = useMemo(
+    () => filteredResults.slice(0, rowLimit),
+    [filteredResults, rowLimit]
+  );
 
   async function handleSearch(query: string) {
     setSearchQuery(query);
@@ -448,6 +474,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     setScanProcessedCount(0);
     setScanTotalCount(symbolsToScan.length);
     setScanEta(null);
+    setMatchedTotal(0);
+    setRowLimit(200);
     
     const startTime = Date.now();
     const CHUNK_SIZE = 10;
@@ -468,6 +496,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           
           if (data.success) {
             appendBatchResults(data.results);
+            if (typeof data.matchedTotal === 'number') {
+              setMatchedTotal((n) => n + data.matchedTotal);
+            }
           }
         } catch (chunkError) {
           console.error("Chunk failed to load:", chunk, chunkError);
@@ -800,6 +831,27 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
               {/* The scan universe is today's index membership, so anything that
                   was delisted or demoted is missing from history. Results are an
                   upper bound, not an estimate. */}
+              {/* Coverage, stated plainly. A capped table that looks complete is
+                  how "top 10 of 130,000" gets mistaken for "these are the matches". */}
+              <div className="mx-5 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
+                <span className="font-semibold text-slate-800">
+                  Showing {visibleResults.length.toLocaleString()} of {filteredResults.length.toLocaleString()} rows
+                </span>
+                {matchedTotal > filteredResults.length && (
+                  <span className="text-slate-500">
+                    · best 10 per stock, out of {matchedTotal.toLocaleString()} strategy/stock pairs that traded
+                  </span>
+                )}
+                {filteredResults.length > visibleResults.length && (
+                  <button
+                    onClick={() => setRowLimit((n) => n + 500)}
+                    className="ml-1 text-blue-600 hover:text-blue-800 font-semibold underline"
+                  >
+                    show 500 more
+                  </button>
+                )}
+              </div>
+
               <div className="mx-5 mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <p className="font-semibold">Read these as an upper bound.</p>
                 <p className="mt-1 text-amber-800">
@@ -844,7 +896,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {displayedResults.filter(res => !showPinnedOnly || pinnedStrategies.some(p => p.symbol === res.symbol && p.strategy === res.strategyName)).map((res, idx) => {
+                    {visibleResults.map((res, idx) => {
                       const isPinned = pinnedStrategies.some(p => p.symbol === res.symbol && p.strategy === res.strategyName);
                       return (
                       <Fragment key={`${res.symbol}-${res.strategyName}-${idx}`}>
