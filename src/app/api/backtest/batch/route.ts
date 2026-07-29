@@ -44,9 +44,7 @@ export type BatchOptimizerResult = {
 };
 
 import {
-  MIN_IN_SAMPLE_TRADES,
   backtestStartDate,
-  MIN_IN_SAMPLE_WIN_RATE,
   HELD_UP_MIN_WIN_RATE,
   MIN_OOS_TRADES,
 } from '@/lib/backtest-constants';
@@ -87,11 +85,21 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { symbols } = await request.json();
+    const { symbols, minWinRate, minTrades } = await request.json();
 
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
       return NextResponse.json({ error: 'No symbols provided' }, { status: 400 });
     }
+
+    // Filters are the caller's choice and default to OFF. They used to be
+    // hardcoded at 67% / 8 trades and applied silently, which meant the Batch
+    // Scanner and the Auto-Optimizer quietly disagreed about the same stock.
+    const clamp = (v: unknown, lo: number, hi: number, dflt: number) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+    };
+    const winRateFloor = clamp(minWinRate, 0, 100, 0);
+    const tradesFloor = clamp(minTrades, 0, 10_000, 0);
 
     const targetSymbols = symbols.slice(0, MAX_SYMBOLS_PER_BATCH);
     const truncated = symbols.length - targetSymbols.length;
@@ -101,7 +109,9 @@ export async function POST(request: Request) {
     const CHUNK_SIZE = 5;
     for (let i = 0; i < targetSymbols.length; i += CHUNK_SIZE) {
       const chunk = targetSymbols.slice(i, i + CHUNK_SIZE);
-      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}`;
+      // Filters are part of the key: results are filtered BEFORE caching, so an
+      // unfiltered scan must not be served a cached filtered set, or vice versa.
+      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}:w${winRateFloor}t${tradesFloor}`;
 
       const chunkPromises = chunk.map(async (symbol) => {
         try {
@@ -126,11 +136,11 @@ export async function POST(request: Request) {
             const split = runSplitBacktest(strat, closes, highs, lows, volumes, dates, opens);
             const { inSample, outOfSample } = split;
 
-            // Select on the training window only — never on full history.
-            if (
-              inSample.totalTrades < MIN_IN_SAMPLE_TRADES ||
-              inSample.winRate < MIN_IN_SAMPLE_WIN_RATE
-            ) {
+            // A strategy that never traded has no win rate to judge.
+            if (inSample.totalTrades === 0) continue;
+            // Caller-supplied floors, applied to the fitted window only — the
+            // held-back window must never influence selection.
+            if (inSample.totalTrades < tradesFloor || inSample.winRate < winRateFloor) {
               continue;
             }
 
@@ -205,6 +215,9 @@ export async function POST(request: Request) {
       // returned. Without this the cap reads as "these are all the matches".
       matchedTotal,
       returnedPerSymbol: MAX_RESULTS_PER_SYMBOL,
+      // Echo the filters back so the UI can state what was applied rather than
+      // presenting a filtered list as the full picture.
+      filters: { minWinRate: winRateFloor, minTrades: tradesFloor },
       // Surfaced rather than silently dropped — a truncated scan should not read
       // as full coverage.
       symbolsSkipped: truncated > 0 ? truncated : 0,

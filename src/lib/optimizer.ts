@@ -29,16 +29,33 @@ export type OptimizerReport = {
 };
 
 import {
-  MIN_IN_SAMPLE_TRADES,
   backtestStartDate,
-  MIN_IN_SAMPLE_WIN_RATE,
   HELD_UP_MIN_WIN_RATE,
   MIN_OOS_TRADES,
 } from './backtest-constants';
 
 export { MIN_OOS_TRADES };
 
-export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
+export type OptimizerFilters = {
+  /** Minimum fitted-window win rate, %. 0 = no filter. */
+  minWinRate?: number;
+  /** Minimum fitted-window trades. 0 = no filter. */
+  minTrades?: number;
+};
+
+export async function runOptimizer(
+  symbol: string,
+  filters: OptimizerFilters = {}
+): Promise<OptimizerReport> {
+  // Default to showing everything. The same floors are available here as in the
+  // batch scanner so the two tabs cannot silently disagree about one stock.
+  const clamp = (v: unknown, lo: number, hi: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
+  };
+  const winRateFloor = clamp(filters.minWinRate, 0, 100);
+  const tradesFloor = clamp(filters.minTrades, 0, 10_000);
+
   const period1 = backtestStartDate();
 
   let rows;
@@ -59,16 +76,25 @@ export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
   let strategiesHeldUp = 0;
   let splitDate: string | null = null;
 
-  // Every strategy in the library is run and every result is returned. Nothing
-  // is filtered out.
+  // Every strategy is run, and by default every result is returned.
   //
-  // Showing the whole distribution is also the safer choice: cherry-picking only
-  // the strategies that cleared a bar is what makes a win rate misleading. If
-  // the user can see all 46 — the 30% ones next to the 80% ones — the number
-  // means what it appears to mean.
+  // Showing the whole distribution is the safer default: cherry-picking only the
+  // strategies that cleared a bar is what makes a win rate misleading. Seeing
+  // the 30% ones next to the 80% ones is what stops a single number being read
+  // as an edge. The floors above are opt-in for when that list is too long.
   for (const strat of MASTER_STRATEGY_LIBRARY) {
     const split = runSplitBacktest(strat, closes, highs, lows, volumes, dates, opens);
     if (split.splitDate) splitDate = split.splitDate.toISOString();
+
+    // Floors apply to the fitted window only; the held-back window must never
+    // influence which strategies are selected. Both default to 0, so by default
+    // nothing is filtered and every strategy is returned.
+    if (split.inSample.totalTrades < tradesFloor) continue;
+    if (winRateFloor > 0) {
+      // A strategy that never traded has no win rate, so it cannot clear a floor.
+      if (split.inSample.totalTrades === 0) continue;
+      if (split.inSample.winRate < winRateFloor) continue;
+    }
 
     if (split.full.totalTrades > 0) strategiesPassed++;
     if (
@@ -104,7 +130,10 @@ export async function runOptimizer(symbol: string): Promise<OptimizerReport> {
   });
 
   return {
-    results: results.slice(0, 100),
+    // No slice. This used to cap at 100, which quietly hid 177 of 277 strategies
+    // on a single-stock scan — a silent cap on the one view whose whole point is
+    // showing the full distribution. One symbol's worth of rows renders fine.
+    results,
     strategiesTested: MASTER_STRATEGY_LIBRARY.length,
     strategiesPassed,
     strategiesHeldUp,

@@ -20,16 +20,18 @@ export const MIN_OOS_TRADES = 3;
 export const HELD_UP_MIN_WIN_RATE = 50;
 
 /**
- * In-sample bar a strategy must clear to be considered at all.
+ * Suggested starting floors, offered to the user rather than imposed.
  *
- * Was 3. With ~46 strategies scanned per symbol, a 3-trade minimum lets far too
- * much through the first gate — 3 trades clears 67% on two wins and a loss, and
- * across 46 attempts that happens constantly. The out-of-sample check catches
- * most of it downstream, but filtering earlier means the held-back window is
- * spent on candidates that were plausible to begin with.
+ * These were hardcoded and applied invisibly in the batch scanner while the
+ * optimizer applied nothing, so the two tabs disagreed about the same stock.
+ * Both now take the floors from the request and default to 0 — nothing hidden.
+ * Kept here as sensible values to preset a UI control with.
+ *
+ * Why 8 and not 3: three trades clears a 67% win rate on two wins and a loss,
+ * and across ~277 strategies that happens constantly.
  */
-export const MIN_IN_SAMPLE_TRADES = 8;
-export const MIN_IN_SAMPLE_WIN_RATE = 67;
+export const SUGGESTED_MIN_TRADES = 8;
+export const SUGGESTED_MIN_WIN_RATE = 67;
 
 /**
  * How far back to pull history for a backtest.
