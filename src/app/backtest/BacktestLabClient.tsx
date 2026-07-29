@@ -8,6 +8,7 @@ import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtes
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
 import { ScanFilters, EMPTY_FILTERS, type FilterValues } from '@/components/ScanFilters';
+import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
 type WatchlistItem = {
@@ -621,20 +622,38 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
               <div className="p-12 text-center">
                 <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
                   <Activity className="h-10 w-10 animate-spin mx-auto mb-4 text-indigo-600" />
-                  <h3 className="font-bold text-slate-800 text-lg mb-1">Simulating 3,000+ Strategies</h3>
-                  <p className="text-slate-500 text-sm mb-6">Processing deep historical backtests across the requested pool. Sit tight.</p>
+                  {/* Say what is actually running, from the real library size —
+                      "3,000+" was invented and drifts every time the library changes. */}
+                  <h3 className="font-bold text-slate-800 text-lg mb-1">
+                    Running {MASTER_STRATEGY_LIBRARY.length} strategies
+                    {scanTotalCount > 1 ? ` on ${scanTotalCount} stocks` : ''}
+                  </h3>
+                  <p className="text-slate-500 text-sm mb-6">
+                    {scanTotalCount > 1
+                      ? `${(MASTER_STRATEGY_LIBRARY.length * scanTotalCount).toLocaleString()} backtests over full history.`
+                      : 'Full history, every strategy. Takes a few seconds.'}
+                  </p>
                   
                   <div className="w-full bg-slate-100 rounded-full h-3 mb-2 overflow-hidden border border-slate-200 relative">
-                    <div 
-                      className="bg-indigo-600 h-3 rounded-full transition-all duration-300 ease-out" 
-                      style={{ width: `${scanProgress}%` }}
-                    ></div>
+                    {scanTotalCount > 1 ? (
+                      <div
+                        className="bg-indigo-600 h-3 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${scanProgress}%` }}
+                      />
+                    ) : (
+                      // One stock completes in a single step, so a percentage
+                      // would sit at 0 then jump to 100. An indeterminate bar is
+                      // the honest signal that work is happening.
+                      <div className="h-3 w-1/3 rounded-full bg-indigo-600 animate-[pulse_1.2s_ease-in-out_infinite]" />
+                    )}
                   </div>
-                  
-                  <div className="flex justify-between items-center text-xs font-bold text-slate-500 mb-4">
-                    <span>{scanProcessedCount} / {scanTotalCount} Stocks Processed</span>
-                    <span className="text-indigo-600">{Math.round(scanProgress)}%</span>
-                  </div>
+
+                  {scanTotalCount > 1 && (
+                    <div className="flex justify-between items-center text-xs font-bold text-slate-500 mb-4">
+                      <span>{scanProcessedCount} / {scanTotalCount} stocks processed</span>
+                      <span className="text-indigo-600">{Math.round(scanProgress)}%</span>
+                    </div>
+                  )}
                   
                   {scanEta !== null && scanEta > 0 && (
                     <div className="bg-indigo-50 text-indigo-700 rounded-lg p-3 text-sm font-semibold flex items-center justify-center gap-2">

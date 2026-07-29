@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Trash2 } from 'lucide-react';
+import { Activity, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 
@@ -59,6 +59,7 @@ export function ClearDataButton() {
       )}
       <div className="mt-4 flex flex-wrap gap-2">
         <Button variant="danger" onClick={handleClear} disabled={loading}>
+          {loading && <Activity className="h-4 w-4 animate-spin mr-2 inline" />}
           {loading ? 'Erasing…' : 'Yes, erase everything'}
         </Button>
         <Button

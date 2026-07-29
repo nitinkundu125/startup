@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Activity } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -120,6 +121,7 @@ export function AuthForm() {
           className="w-full"
           disabled={loading}
         >
+          {loading && <Activity className="h-4 w-4 animate-spin mr-2 inline" />}
           {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
         </Button>
       </form>

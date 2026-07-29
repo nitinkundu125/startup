@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Save, Trash2, Check } from 'lucide-react';
+import { Save, Trash2, Check, Activity } from 'lucide-react';
 
 /**
  * Scan filters, with named presets.
@@ -54,13 +54,17 @@ export function ScanFilters({
   const [draftName, setDraftName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
+  /** Every network action here gets a visible state — none of them are instant. */
+  const [busy, setBusy] = useState<null | 'loading' | 'saving' | 'deleting'>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    if (!signal?.aborted) setBusy('loading');
     try {
       const res = await fetch('/api/lab/filters', { signal });
       const data = await res.json();
       if (!signal?.aborted && data.success) setPresets(data.filters);
     } catch { /* presets are a convenience; never block the scanner */ }
+    finally { if (!signal?.aborted) setBusy(null); }
   }, []);
 
   useEffect(() => {
@@ -90,7 +94,10 @@ export function ScanFilters({
   async function save() {
     const name = draftName.trim();
     if (!name) return setError('Give it a name');
+    if (busy) return;
     setError(null);
+    setBusy('saving');
+    try {
     const res = await fetch('/api/lab/filters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -104,15 +111,25 @@ export function ScanFilters({
     setSelected(data.filter.id);
     setJustSaved(true);
     setTimeout(() => setJustSaved(false), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function remove() {
     const p = presets.find((x) => x.id === selected);
-    if (!p || !window.confirm(`Delete the filter "${p.name}"?`)) return;
-    await fetch(`/api/lab/filters?id=${p.id}`, { method: 'DELETE' });
-    setSelected('');
-    onChange(EMPTY_FILTERS);
-    await load();
+    if (!p || busy || !window.confirm(`Delete the filter "${p.name}"?`)) return;
+    setBusy('deleting');
+    try {
+      await fetch(`/api/lab/filters?id=${p.id}`, { method: 'DELETE' });
+      setSelected('');
+      onChange(EMPTY_FILTERS);
+      await load();
+    } finally {
+      setBusy(null);
+    }
   }
 
   const active = FIELDS.some((f) => values[f.key] > 0) || values.topPerSymbol !== 10;
@@ -129,10 +146,10 @@ export function ScanFilters({
           <select
             value={selected}
             onChange={(e) => applyPreset(e.target.value)}
-            disabled={disabled}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={disabled || busy === 'loading'}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
           >
-            <option value="">No filter — show everything</option>
+            <option value="">{busy === 'loading' ? 'Loading saved filters…' : 'No filter — show everything'}</option>
             {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
@@ -164,14 +181,20 @@ export function ScanFilters({
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <button onClick={save} className="px-3 py-2 rounded-md bg-slate-800 text-white text-sm font-medium hover:bg-slate-900">Save</button>
+            <button
+              onClick={save} disabled={busy !== null} aria-busy={busy === 'saving'}
+              className="px-3 py-2 rounded-md bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {busy === 'saving' && <Activity className="h-3.5 w-3.5 animate-spin" />}
+              {busy === 'saving' ? 'Saving…' : 'Save'}
+            </button>
             <button onClick={() => { setNaming(false); setError(null); }} className="px-2 py-2 text-sm text-slate-500 hover:text-slate-800">Cancel</button>
           </div>
         ) : (
           <>
             <button
               onClick={() => { setDraftName(current?.name ?? ''); setNaming(true); }}
-              disabled={disabled || !active}
+              disabled={disabled || !active || busy !== null}
               title={active ? 'Save these values as a named filter' : 'Set a value first'}
               className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 flex items-center gap-1.5"
             >
@@ -180,11 +203,11 @@ export function ScanFilters({
             </button>
             {current && (
               <button
-                onClick={remove} disabled={disabled}
+                onClick={remove} disabled={disabled || busy !== null} aria-busy={busy === 'deleting'}
                 className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm text-slate-500 hover:text-red-600 hover:border-red-200"
                 title={`Delete "${current.name}"`}
               >
-                <Trash2 className="h-4 w-4" />
+                {busy === 'deleting' ? <Activity className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               </button>
             )}
           </>

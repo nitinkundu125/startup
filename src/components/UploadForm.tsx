@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
+import { Activity,
   Upload,
   FileText,
   CheckCircle2,
@@ -191,6 +191,7 @@ export function UploadForm({ hasExistingData, importType = 'STOCK' }: { hasExist
             variant="accent"
             disabled={files.length === 0 || loading}
           >
+            {loading && <Activity className="h-4 w-4 animate-spin mr-2 inline" />}
             {loading
               ? `Importing ${files.length} file${files.length > 1 ? 's' : ''}…`
               : `Import ${files.length || 0} file${files.length !== 1 ? 's' : ''}`}
