@@ -8,7 +8,8 @@ import { Activity, Zap, ShieldCheck, Plus, Settings2 } from 'lucide-react';
 import type { StrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
-import { ScanFilters, EMPTY_FILTERS, type FilterValues } from '@/components/ScanFilters';
+import { ScanFilters } from '@/components/ScanFilters';
+import { EMPTY_FILTERS, matchesFilters, type FilterValues } from '@/lib/scan-filters';
 import { displayStock } from '@/lib/stock-names';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
@@ -183,7 +184,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
    * of thousands of pairs. The server already caps per symbol; this caps what
    * gets painted.
    */
-  const filteredResults = displayedResults;
+  const filteredResults = useMemo(
+    () => displayedResults.filter((r) => matchesFilters(r, filters)),
+    [displayedResults, filters]
+  );
   const visibleResults = useMemo(
     () => filteredResults.slice(0, rowLimit),
     [filteredResults, rowLimit]
@@ -312,7 +316,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           const res = await apiFetch('/api/backtest/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbols: chunk, ...filters })
+            // No filters: the scan returns everything once and the browser narrows
+            // it. Sending them here made every slider change a fresh 500-stock scan.
+            body: JSON.stringify({ symbols: chunk })
           });
           
           const data = await res.json();
@@ -640,10 +646,6 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 </div>
               </div>
 
-              <div className="w-full md:w-2/3 ml-auto">
-                <ScanFilters values={filters} onChange={setFilters} disabled={batchLoading} />
-              </div>
-
             </div>
           </div>
           
@@ -703,6 +705,14 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
             {!batchLoading && batchResults && batchResults.length > 0 && (
               <>
+              {/* Filters sit with the results, not with the scan controls: they
+                  act on what came back, and nothing here triggers a re-scan. */}
+              <ScanFilters
+                values={filters}
+                onChange={setFilters}
+                matchCount={filteredResults.length}
+                totalCount={displayedResults.length}
+              />
               {/* The scan universe is today's index membership, so anything that
                   was delisted or demoted is missing from history. Results are an
                   upper bound, not an estimate. */}

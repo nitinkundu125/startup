@@ -2,57 +2,47 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/api-fetch';
-import { Save, Trash2, Check, Activity } from 'lucide-react';
+import { SlidersHorizontal, Save, Trash2, Check, Activity, X } from 'lucide-react';
+import {
+  EMPTY_FILTERS,
+  FILTER_FIELDS,
+  activeFilterCount,
+  type FilterValues,
+} from '@/lib/scan-filters';
 
 /**
- * Scan filters, with named presets.
+ * Filters over a finished scan.
  *
- * Six numbers retyped before every scan is friction, and friction means people
- * scan with whatever was left from last time. Presets make a filter a thing you
- * define once and reuse.
+ * They used to be part of the scan request, so changing a number meant scanning
+ * five hundred stocks again. Now the scan returns everything once and this
+ * narrows it in the browser, which is why the panel can show a live match count:
+ * you can see a floor is too strict before committing to it.
  *
- * Fitted and held-back floors are separated because they measure different
- * windows. The distinction is in each group's tooltip; the UI states it once and
- * then gets out of the way.
+ * Collapsed by default. Six number boxes permanently occupying the top of the
+ * results is a form to fill in; a button with a count is a control you reach for.
  */
 
-export type FilterValues = {
-  minWinRate: number; minTrades: number; maxDrawdown: number;
-  oosMinWinRate: number; oosMinTrades: number; oosMaxDrawdown: number;
-};
-
-export const EMPTY_FILTERS: FilterValues = {
-  minWinRate: 0, minTrades: 0, maxDrawdown: 0,
-  oosMinWinRate: 0, oosMinTrades: 0, oosMaxDrawdown: 0,
-};
-
 type Preset = FilterValues & { id: string; name: string };
-
-const FIELDS: { key: keyof FilterValues; label: string; hint: string }[] = [
-  { key: 'minWinRate', label: 'Min win rate %', hint: 'Fitted win rate floor' },
-  { key: 'minTrades', label: 'Min trades', hint: 'Fitted trade count floor' },
-  { key: 'maxDrawdown', label: 'Max DD %', hint: 'Positive number: 20 keeps nothing worse than −20%' },
-  { key: 'oosMinWinRate', label: 'Min win rate %', hint: 'Held-back win rate floor' },
-  { key: 'oosMinTrades', label: 'Min trades', hint: 'Held-back trade count floor' },
-  { key: 'oosMaxDrawdown', label: 'Max DD %', hint: 'Held-back drawdown ceiling' },
-];
 
 export function ScanFilters({
   values,
   onChange,
-  disabled,
+  matchCount,
+  totalCount,
 }: {
   values: FilterValues;
   onChange: (v: FilterValues) => void;
-  disabled?: boolean;
+  /** Rows clearing the current floors, and rows in the scan. */
+  matchCount: number;
+  totalCount: number;
 }) {
+  const [open, setOpen] = useState(false);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [selected, setSelected] = useState('');
   const [naming, setNaming] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
-  /** Every network action here gets a visible state — none of them are instant. */
   const [busy, setBusy] = useState<null | 'loading' | 'saving' | 'deleting'>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -61,7 +51,7 @@ export function ScanFilters({
       const res = await apiFetch('/api/lab/filters', { signal });
       const data = await res.json();
       if (!signal?.aborted && data.success) setPresets(data.filters);
-    } catch { /* presets are a convenience; never block the scanner */ }
+    } catch { /* presets are a convenience; never block the results */ }
     finally { if (!signal?.aborted) setBusy(null); }
   }, []);
 
@@ -71,17 +61,17 @@ export function ScanFilters({
     return () => { clearTimeout(id); ac.abort(); };
   }, [load]);
 
+  const active = activeFilterCount(values);
+
   const set = (key: keyof FilterValues, raw: string) => {
     const cap = key.toLowerCase().includes('trades') ? 10_000 : 100;
     onChange({ ...values, [key]: Math.min(cap, Math.max(0, Number(raw) || 0)) });
-    setSelected(''); // edited by hand — no longer "the preset"
+    setSelected(''); // hand-edited — no longer "the preset"
   };
 
-  const applyPreset = (id: string) => {
-    setSelected(id);
-    if (!id) return onChange(EMPTY_FILTERS);
-    const p = presets.find((x) => x.id === id);
-    if (!p) return;
+  const applyPreset = (p: Preset | null) => {
+    if (!p) { setSelected(''); onChange(EMPTY_FILTERS); return; }
+    setSelected(p.id);
     onChange({
       minWinRate: p.minWinRate, minTrades: p.minTrades, maxDrawdown: p.maxDrawdown,
       oosMinWinRate: p.oosMinWinRate, oosMinTrades: p.oosMinTrades, oosMaxDrawdown: p.oosMaxDrawdown,
@@ -95,19 +85,19 @@ export function ScanFilters({
     setError(null);
     setBusy('saving');
     try {
-    const res = await apiFetch('/api/lab/filters', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, ...values }),
-    });
-    const data = await res.json();
-    if (!data.success) return setError(data.error ?? 'Could not save');
-    setNaming(false);
-    setDraftName('');
-    await load();
-    setSelected(data.filter.id);
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 2000);
+      const res = await apiFetch('/api/lab/filters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, ...values }),
+      });
+      const data = await res.json();
+      if (!data.success) return setError(data.error ?? 'Could not save');
+      setNaming(false);
+      setDraftName('');
+      await load();
+      setSelected(data.filter.id);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');
     } finally {
@@ -115,124 +105,176 @@ export function ScanFilters({
     }
   }
 
-  async function remove() {
-    const p = presets.find((x) => x.id === selected);
-    if (!p || busy || !window.confirm(`Delete the filter "${p.name}"?`)) return;
+  async function remove(p: Preset) {
+    if (busy || !window.confirm(`Delete the filter "${p.name}"?`)) return;
     setBusy('deleting');
     try {
       await apiFetch(`/api/lab/filters?id=${p.id}`, { method: 'DELETE' });
-      setSelected('');
-      onChange(EMPTY_FILTERS);
+      if (selected === p.id) { setSelected(''); onChange(EMPTY_FILTERS); }
       await load();
     } finally {
       setBusy(null);
     }
   }
 
-  const active = FIELDS.some((f) => values[f.key] > 0);
-  const current = presets.find((p) => p.id === selected);
-  // Loaded a preset then changed a number — say so, rather than showing a name
-  // that no longer matches what will run.
-  const dirty = Boolean(current) && FIELDS.some((f) => current![f.key] !== values[f.key]);
+  const groups = [
+    {
+      id: 'fitted' as const,
+      title: 'Fitted window',
+      tip: 'Measured on the data used to pick the strategy.',
+    },
+    {
+      id: 'oos' as const,
+      title: 'Held-back window',
+      tip: 'Measured on data the strategy was not picked on. Filtering here uses that data to select, so survivors are no longer purely out-of-sample.',
+    },
+  ];
 
   return (
-    <div className="w-full">
-      <div className="flex flex-wrap items-end gap-2 mb-3">
-        <div className="flex-1 min-w-[180px]">
-          <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Saved filter</label>
-          <select
-            value={selected}
-            onChange={(e) => applyPreset(e.target.value)}
-            disabled={disabled || busy === 'loading'}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+    <div className="border-b border-slate-200 bg-slate-50/60">
+      <div className="flex flex-wrap items-center gap-2 px-5 py-3">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+            active > 0
+              ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters
+          {active > 0 && (
+            <span className="rounded-full bg-indigo-600 px-1.5 text-xs font-bold text-white">{active}</span>
+          )}
+        </button>
+
+        {/* Saved filters as chips. A dropdown hides how many there are and takes
+            two clicks to apply one. */}
+        {presets.map((p) => (
+          <span
+            key={p.id}
+            className={`group inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium ${
+              selected === p.id
+                ? 'border-indigo-300 bg-indigo-100 text-indigo-800'
+                : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
+            }`}
           >
-            <option value="">{busy === 'loading' ? 'Loading saved filters…' : 'No filter — show everything'}</option>
-            {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-
-        {naming ? (
-          <div className="flex items-end gap-2">
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Name</label>
-              <input
-                autoFocus value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && save()}
-                placeholder="Safe & steady"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <button onClick={() => applyPreset(selected === p.id ? null : p)}>{p.name}</button>
             <button
-              onClick={save} disabled={busy !== null} aria-busy={busy === 'saving'}
-              className="px-3 py-2 rounded-md bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-50 flex items-center gap-1.5"
+              onClick={() => remove(p)}
+              title={`Delete "${p.name}"`}
+              className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
             >
-              {busy === 'saving' && <Activity className="h-3.5 w-3.5 animate-spin" />}
-              {busy === 'saving' ? 'Saving…' : 'Save'}
+              <Trash2 className="h-3 w-3" />
             </button>
-            <button onClick={() => { setNaming(false); setError(null); }} className="px-2 py-2 text-sm text-slate-500 hover:text-slate-800">Cancel</button>
-          </div>
-        ) : (
-          <>
-            <button
-              onClick={() => { setDraftName(current?.name ?? ''); setNaming(true); }}
-              disabled={disabled || !active || busy !== null}
-              title={active ? 'Save these values as a named filter' : 'Set a value first'}
-              className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 flex items-center gap-1.5"
-            >
-              {justSaved ? <Check className="h-4 w-4 text-green-600" /> : <Save className="h-4 w-4" />}
-              {current ? 'Save as / update' : 'Save filter'}
-            </button>
-            {current && (
-              <button
-                onClick={remove} disabled={disabled || busy !== null} aria-busy={busy === 'deleting'}
-                className="px-3 py-2 rounded-md border border-slate-300 bg-white text-sm text-slate-500 hover:text-red-600 hover:border-red-200"
-                title={`Delete "${current.name}"`}
-              >
-                {busy === 'deleting' ? <Activity className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              </button>
-            )}
-          </>
-        )}
-      </div>
-
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
-      {dirty && (
-        <p className="text-xs text-amber-600 mb-2">
-          Modified from “{current!.name}” — save to keep these values.
-        </p>
-      )}
-
-      <div className="grid md:grid-cols-2 gap-4">
-        {([
-          ['Fitted window', 0, 'Measured on the data used to pick the strategy'],
-          ['Held-back window (OOS)', 3, 'Measured on data the strategy was not picked on. Filtering here uses that data to select, so survivors are no longer purely out-of-sample.'],
-        ] as const).map(([title, offset, tip]) => (
-          <div key={title} className={`rounded-lg border p-3 ${offset ? 'border-indigo-200 bg-indigo-50/40' : 'border-slate-200'}`}>
-            <p className="text-xs font-bold uppercase tracking-wide mb-2 text-slate-600" title={tip}>{title}</p>
-            <div className="grid grid-cols-3 gap-2">
-              {FIELDS.slice(offset, offset + 3).map((f) => (
-                <div key={f.key}>
-                  <label className="text-[10px] font-semibold text-slate-500 uppercase mb-1 block" title={f.hint}>
-                    {f.label}
-                  </label>
-                  <input
-                    type="number" min={0} disabled={disabled}
-                    value={values[f.key]}
-                    onChange={(e) => set(f.key, e.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          </span>
         ))}
+
+        <div className="ml-auto flex items-center gap-3 text-sm">
+          {active > 0 ? (
+            <>
+              <span className="font-semibold text-slate-800">
+                {matchCount.toLocaleString()}
+                <span className="font-normal text-slate-500"> of {totalCount.toLocaleString()} rows</span>
+              </span>
+              <button
+                onClick={() => { onChange(EMPTY_FILTERS); setSelected(''); }}
+                className="inline-flex items-center gap-1 text-slate-500 underline hover:text-slate-800"
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </button>
+            </>
+          ) : (
+            <span className="text-slate-500">{totalCount.toLocaleString()} rows</span>
+          )}
+        </div>
       </div>
 
-      <p className="text-xs text-slate-400 mt-2">
-        Every strategy that cleared the filters, for every stock. Zero disables a
-        field; Max DD is entered positive.
-      </p>
+      {open && (
+        <div className="border-t border-slate-200 bg-white px-5 py-4">
+          <div className="grid gap-5 md:grid-cols-2">
+            {groups.map((g) => (
+              <div key={g.id}>
+                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-600" title={g.tip}>
+                  {g.title}
+                </p>
+                <div className="space-y-2.5">
+                  {FILTER_FIELDS.filter((f) => f.group === g.id).map((f) => (
+                    <label key={f.key} className="flex items-center gap-3 text-sm" title={f.hint}>
+                      <span className="flex-1 text-slate-600">{f.label}</span>
+                      <span className="relative">
+                        <input
+                          type="number"
+                          min={0}
+                          value={values[f.key] || ''}
+                          placeholder="any"
+                          onChange={(e) => set(f.key, e.target.value)}
+                          className={`w-24 rounded-md border px-2 py-1.5 text-right text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500/30 ${
+                            values[f.key] > 0
+                              ? 'border-indigo-300 bg-indigo-50 font-semibold text-indigo-900'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        />
+                        {f.suffix && (
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                            {f.suffix}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+            <p className="text-xs text-slate-500">
+              Leave a box empty for no limit. Drawdown is entered positive — 20 keeps nothing worse than −20%.
+            </p>
+            <div className="ml-auto flex items-center gap-2">
+              {naming ? (
+                <>
+                  <input
+                    autoFocus
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && save()}
+                    placeholder="Safe & steady"
+                    className="rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                  <button
+                    onClick={save}
+                    disabled={busy !== null}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                  >
+                    {busy === 'saving' && <Activity className="h-3.5 w-3.5 animate-spin" />}
+                    Save
+                  </button>
+                  <button
+                    onClick={() => { setNaming(false); setError(null); }}
+                    className="px-2 py-1.5 text-sm text-slate-500 hover:text-slate-800"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => { setDraftName(presets.find((p) => p.id === selected)?.name ?? ''); setNaming(true); }}
+                  disabled={active === 0}
+                  title={active > 0 ? 'Save these values as a named filter' : 'Set a value first'}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  {justSaved ? <Check className="h-4 w-4 text-green-600" /> : <Save className="h-4 w-4" />}
+                  Save as filter
+                </button>
+              )}
+            </div>
+          </div>
+
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
