@@ -45,7 +45,12 @@ type Summary = {
 const money = (n: number) =>
   `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-export function LabPositions({ defaultSymbol = '', defaultStrategy = '' }) {
+export function LabPositions({
+  defaultSymbol = '',
+  defaultStrategy = '',
+  /** Bumped by the parent after recording a buy, to force a refetch. */
+  refreshToken = 0,
+}: { defaultSymbol?: string; defaultStrategy?: string; refreshToken?: number }) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,7 +83,7 @@ export function LabPositions({ defaultSymbol = '', defaultStrategy = '' }) {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshToken]);
 
   async function submit() {
     setSaving(true);

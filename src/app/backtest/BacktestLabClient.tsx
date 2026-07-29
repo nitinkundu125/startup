@@ -148,6 +148,60 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const [minTrades, setMinTrades] = useState(0);
   /** Drawdown tolerance as a positive percent. 0 = no filter. */
   const [maxDrawdown, setMaxDrawdown] = useState(0);
+  /**
+   * Row the user is recording a buy against. Prefilled from the scan row so the
+   * symbol, strategy and price are not retyped — retyping is where a position
+   * gets attached to the wrong strategy and every later number goes wrong.
+   */
+  const [buyRow, setBuyRow] = useState<any | null>(null);
+  const [buyQty, setBuyQty] = useState('');
+  const [buyPrice, setBuyPrice] = useState('');
+  const [buyStop, setBuyStop] = useState('');
+  const [buySaving, setBuySaving] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
+  /** Bumped after a save so the positions panel refetches. */
+  const [positionsToken, setPositionsToken] = useState(0);
+
+  function openBuy(res: any) {
+    setBuyRow(res);
+    setBuyPrice(res.lastClose ? String(res.lastClose.toFixed(2)) : '');
+    setBuyQty('');
+    setBuyStop('');
+    setBuyError(null);
+  }
+
+  async function confirmBuy() {
+    if (!buyRow) return;
+    setBuySaving(true);
+    setBuyError(null);
+    try {
+      const res = await fetch('/api/lab/positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: buyRow.symbol,
+          strategyName: buyRow.strategyName,
+          entryPrice: buyPrice,
+          quantity: buyQty,
+          entryDate: new Date().toISOString(),
+          stopLossPrice: buyStop || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) { setBuyError(data.error ?? 'Could not record'); return; }
+      // Pin it too, so the exit signal is actually tracked. Buying without
+      // pinning would mean never being told when to sell.
+      if (!pinnedStrategies.some((p) => p.symbol === buyRow.symbol && p.strategy === buyRow.strategyName)) {
+        await handleTogglePin(buyRow.symbol, buyRow.strategyName);
+      }
+      setBuyRow(null);
+      setPositionsToken((n) => n + 1);
+    } catch (e) {
+      setBuyError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setBuySaving(false);
+    }
+  }
 
   const displayedResults = useMemo(() => {
     if (!batchResults) return [];
@@ -590,7 +644,79 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         </div>
       </div>
 
-      <LabPositions />
+      {/* Confirm dialog for recording a buy. Everything except quantity is
+          prefilled from the row, because retyping the strategy name is how a
+          position ends up attached to the wrong one. */}
+      {buyRow && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => !buySaving && setBuyRow(null)}
+        >
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-800">
+              Record buy — {String(buyRow.symbol).replace('.NS', '')}
+            </h3>
+            <p className="text-sm text-slate-500 mt-1">{buyRow.strategyName}</p>
+
+            {buyRow.oosTotalTrades >= MIN_OOS_TRADES ? (
+              <p className="text-xs text-slate-500 mt-2">
+                Out-of-sample: {buyRow.oosWinRate.toFixed(0)}% win rate over {buyRow.oosTotalTrades} trades ·
+                worst trade {(buyRow.oosMaxDrawdown ?? 0).toFixed(1)}%
+              </p>
+            ) : (
+              <p className="text-xs text-amber-700 mt-2">
+                Not validated out-of-sample — only {buyRow.oosTotalTrades ?? 0} held-back trade(s).
+              </p>
+            )}
+
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Price</label>
+                <input
+                  type="number" value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Qty</label>
+                <input
+                  type="number" value={buyQty} autoFocus onChange={(e) => setBuyQty(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Stop (opt)</label>
+                <input
+                  type="number" value={buyStop} onChange={(e) => setBuyStop(e.target.value)}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 mt-2">
+              Price is the last close, not your fill — change it to what you actually paid.
+              Pinning happens automatically so you get the sell signal.
+            </p>
+
+            {buyError && <p className="text-sm text-red-600 mt-3">{buyError}</p>}
+
+            <div className="flex gap-2 mt-5">
+              <Button
+                onClick={confirmBuy}
+                disabled={buySaving || !buyQty || !buyPrice}
+                className="bg-green-600 text-white hover:bg-green-700 flex-1"
+              >
+                {buySaving ? 'Saving…' : 'Confirm — I bought this'}
+              </Button>
+              <Button onClick={() => setBuyRow(null)} disabled={buySaving} variant="secondary">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <LabPositions refreshToken={positionsToken} />
 
       {pinnedStrategies.length > 0 && (
         <Card className="bg-white border-slate-200 mb-8 overflow-hidden shadow-sm p-0">
@@ -1037,12 +1163,27 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                           <td className="px-5 py-4 text-right text-slate-500 font-medium">
                             {res.totalTrades}
                           </td>
-                          <td className="px-5 py-4 text-center">
-                            <button 
+                          <td className="px-5 py-4 text-center whitespace-nowrap">
+                            {/* The act of buying, recorded from the row itself.
+                                Emphasised on a live BUY because that is the row
+                                the user is deciding on; still available on the
+                                others, since people buy late. */}
+                            <button
+                              onClick={() => openBuy(res)}
+                              className={
+                                res.currentSignal === 'NEW_BUY'
+                                  ? 'mr-3 px-3 py-1.5 rounded bg-green-600 text-white text-xs font-bold hover:bg-green-700 shadow-sm'
+                                  : 'mr-3 px-2 py-1 rounded text-xs font-semibold text-slate-500 hover:text-green-700 hover:bg-green-50 border border-slate-200'
+                              }
+                              title="Record that you actually bought this"
+                            >
+                              I bought
+                            </button>
+                            <button
                               onClick={() => toggleTradeDetails(idx, res.symbol, res.strategy)}
                               className="text-blue-500 hover:text-blue-700 font-semibold text-xs transition-colors"
                             >
-                              {expandedRow === idx ? 'Close Details' : 'View Trades'}
+                              {expandedRow === idx ? 'Close' : 'Trades'}
                             </button>
                           </td>
                         </tr>

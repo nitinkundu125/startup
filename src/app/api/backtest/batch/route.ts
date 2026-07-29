@@ -41,6 +41,8 @@ export type BatchOptimizerResult = {
   currentSignal?: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
   /** Strategies that traded on this symbol before the per-symbol cap. First row only. */
   matchedTotal?: number;
+  /** Most recent close, used to prefill the buy form. Not a live quote. */
+  lastClose?: number;
 };
 
 import {
@@ -177,6 +179,7 @@ export async function POST(request: Request) {
               splitDate: split.splitDate ? split.splitDate.toISOString() : null,
               strategy: strat,
               currentSignal: outOfSample.currentSignal,
+              lastClose: closes[closes.length - 1],
             });
           }
 
