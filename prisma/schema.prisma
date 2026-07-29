@@ -36,6 +36,12 @@ model User {
    * the cookie only removes the browser's copy.
    */
   sessionsValidFrom DateTime?
+  /**
+   * Telegram chat to alert on signal changes. The bot token is app-level
+   * (TELEGRAM_BOT_TOKEN); only the destination is per-user. Null disables alerts.
+   */
+  telegramChatId    String?
+  labPositions      LabPosition[]
   /** JSON: Zerodha holdings export for qty reconciliation */
   holdingsSnapshot  String?
   /** JSON: { fetchedAt, prices: { SYMBOL: ltp }, failed?: string[] } from NSE/Yahoo */
@@ -63,8 +69,46 @@ model PinnedStrategy {
   isNewSignal  Boolean  @default(false)
   statsJson    String?  // Cache for winRate, averageReturn, totalTrades, etc.
   lastUpdated  DateTime?
+  /**
+   * Signal the user was last notified about. Without this a cron running daily
+   * re-sends the same alert every run for as long as the signal persists, and
+   * an alert you receive every morning stops being an alert.
+   */
+  lastNotifiedSignal String?
 
   @@unique([userId, symbol, strategyName])
+}
+
+/**
+ * A position the user actually took after seeing a signal.
+ *
+ * Signals alone cannot tell anyone what to do next: the app knew a strategy
+ * fired, not that you acted on it, at what price, or in what size. Without that
+ * the exit alert has no P&L behind it and every number shown is the backtest's
+ * rather than yours — you may well have bought three days later at a worse price.
+ */
+model LabPosition {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol        String
+  /** Strategy that produced the entry signal, so the exit rule stays attached. */
+  strategyName  String
+  entryPrice    Float
+  quantity      Float
+  entryDate     DateTime
+  /** Optional hard floor, independent of the strategy's own exit condition. */
+  stopLossPrice Float?
+  exitPrice     Float?
+  exitDate      DateTime?
+  /** OPEN | CLOSED */
+  status        String    @default("OPEN")
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, symbol])
 }
 
 model ImportFile {

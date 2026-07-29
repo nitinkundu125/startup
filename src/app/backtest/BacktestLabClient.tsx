@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, Pin, Star, X } from 'lucide-react';
 import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
+import { LabPositions } from '@/components/LabPositions';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
 type WatchlistItem = {
@@ -588,6 +589,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           </button>
         </div>
       </div>
+
+      <LabPositions />
 
       {pinnedStrategies.length > 0 && (
         <Card className="bg-white border-slate-200 mb-8 overflow-hidden shadow-sm p-0">
