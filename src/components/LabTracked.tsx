@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/api-fetch';
+import { displayStock } from '@/lib/stock-names';
 import { Activity } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +19,7 @@ import { Button } from '@/components/ui/Button';
 type Row = {
   id: string;
   symbol: string;
+  companyName?: string | null;
   strategyName: string;
   currentPrice: number | null;
   entryPrice: number;
@@ -36,7 +38,7 @@ type Row = {
 };
 
 type ClosedTrade = {
-  id: string; symbol: string; strategyName: string;
+  id: string; symbol: string; companyName?: string | null; strategyName: string;
   entryPrice: number; exitPrice: number | null; quantity: number;
   exitDate: string | null; realised: number | null;
 };
@@ -79,7 +81,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
 
   async function sold(r: Row) {
     const suggested = (r.currentPrice ?? r.entryPrice).toFixed(2);
-    const price = window.prompt(`Exit price for ${r.symbol.replace('.NS', '')}?`, suggested);
+    const price = window.prompt(`Exit price for ${displayStock(r.symbol, r.companyName)}?`, suggested);
     if (!price) return;
     setBusy(r.id);
     await apiFetch(`/api/lab/positions/${r.id}`, {
@@ -92,7 +94,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
   }
 
   async function remove(r: Row) {
-    if (!window.confirm(`Delete the ${r.symbol.replace('.NS', '')} position? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete the ${displayStock(r.symbol, r.companyName)} position? This cannot be undone.`)) return;
     setBusy(r.id);
     await apiFetch(`/api/lab/positions/${r.id}`, { method: 'DELETE' });
     await load();
@@ -158,7 +160,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
           <tbody className="divide-y divide-slate-100">
             {closed.map((c) => (
               <tr key={c.id}>
-                <td className="px-4 py-3 font-bold text-slate-800">{c.symbol.replace('.NS', '')}</td>
+                <td className="px-4 py-3 font-bold text-slate-800">{displayStock(c.symbol, c.companyName)}</td>
                 <td className="px-4 py-3 text-slate-500">{c.strategyName}</td>
                 <td className="px-4 py-3 text-right text-slate-600">₹{c.entryPrice.toFixed(2)}</td>
                 <td className="px-4 py-3 text-right text-slate-600">₹{(c.exitPrice ?? 0).toFixed(2)}</td>
@@ -176,7 +178,7 @@ export function LabTracked({ refreshToken = 0 }: { refreshToken?: number }) {
             return (
               <div key={r.id} className={`p-4 flex flex-wrap items-center gap-4 ${urgent ? 'bg-red-50' : 'hover:bg-slate-50'}`}>
                 <div className="min-w-[200px] flex-1">
-                  <div className="font-bold text-slate-800">{r.symbol.replace('.NS', '')}</div>
+                  <div className="font-bold text-slate-800">{displayStock(r.symbol, r.companyName)}</div>
                   <div className="text-xs text-blue-600">{r.strategyName}</div>
                   <div className="text-xs text-slate-400 mt-0.5">
                     {r.quantity} @ ₹{r.entryPrice.toFixed(2)} · {new Date(r.entryDate).toLocaleDateString()}

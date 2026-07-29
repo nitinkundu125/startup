@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireValidUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { getStockNames } from '@/lib/stock-names.server';
 
 export async function GET() {
   const user = await requireValidUser();
@@ -12,7 +13,10 @@ export async function GET() {
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' }
     });
-    return NextResponse.json({ watchlist });
+    const names = await getStockNames(watchlist.map((w) => w.symbol));
+    return NextResponse.json({
+      watchlist: watchlist.map((w) => ({ ...w, companyName: names[w.symbol] ?? null })),
+    });
   } catch {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

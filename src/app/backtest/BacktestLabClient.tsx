@@ -9,12 +9,14 @@ import type { StrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
 import { ScanFilters, EMPTY_FILTERS, type FilterValues } from '@/components/ScanFilters';
+import { displayStock } from '@/lib/stock-names';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
 type WatchlistItem = {
   id: string;
   symbol: string;
+  companyName?: string | null;
 };
 
 
@@ -433,7 +435,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         >
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-800">
-              Record buy — {String(buyRow.symbol).replace('.NS', '')}
+              Record buy — {displayStock(String(buyRow.symbol), buyRow.companyName)}
             </h3>
             <p className="text-sm text-slate-500 mt-1">{buyRow.strategyName}</p>
 
@@ -529,8 +531,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                         }}
                         className="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0"
                       >
-                        <div className="font-medium text-slate-800">{res.symbol}</div>
-                        <div className="text-xs text-slate-500">{res.name}</div>
+                        <div className="font-medium text-slate-800">{res.name || displayStock(res.symbol)}</div>
                       </li>
                     ))}
                   </ul>
@@ -545,7 +546,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
             >
               <option value="" disabled>Select from Watchlist...</option>
               {watchlist.map(w => (
-                <option key={w.id} value={w.symbol}>{w.symbol}</option>
+                <option key={w.id} value={w.symbol}>{displayStock(w.symbol, w.companyName)}</option>
               ))}
             </select>
           </div>
@@ -633,7 +634,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 <div className="flex flex-wrap gap-2 mt-3">
                   {watchlist.map(w => (
                     <span key={w.id} className="inline-flex items-center px-2 py-1 bg-slate-200 text-slate-700 text-xs rounded-full font-medium shadow-sm">
-                      {w.symbol}
+                      {displayStock(w.symbol, w.companyName)}
                     </span>
                   ))}
                 </div>
@@ -788,7 +789,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                       <Fragment key={`${res.symbol}-${res.strategyName}-${idx}`}>
                         <tr className="hover:bg-slate-50 transition-colors group">
                           <td className="px-5 py-4 font-bold text-slate-400">#{idx + 1}</td>
-                          <td className="px-5 py-4 font-bold text-slate-800">{res.symbol}</td>
+                          <td className="px-5 py-4 font-bold text-slate-800">{displayStock(res.symbol, res.companyName)}</td>
                           <td className="px-5 py-4 font-medium text-blue-600">{res.strategyName}</td>
                           <td className="px-5 py-4 text-center">
                             {res.currentSignal === 'NEW_BUY' && <span className="inline-flex items-center px-2 py-1 rounded bg-green-500 text-white text-xs font-bold shadow-sm animate-pulse">🔥 BUY TODAY</span>}

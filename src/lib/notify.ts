@@ -18,6 +18,8 @@
  *   4. Save that id against the user
  */
 
+import { displayStock } from './stock-names';
+
 export type NotifyResult = { sent: boolean; reason?: string };
 
 const TELEGRAM_API = 'https://api.telegram.org';
@@ -59,6 +61,8 @@ export async function sendTelegram(chatId: string, text: string): Promise<Notify
 
 export type SignalAlert = {
   symbol: string;
+  /** Company name, when known. Alerts read better as a name than a ticker. */
+  companyName?: string | null;
   strategyName: string;
   signal: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
   /** Held-back stats — the honest ones, not the fitted figures. */
@@ -89,7 +93,7 @@ export function formatSignalAlert(a: SignalAlert): string {
   const lines = [
     head,
     '',
-    `<b>${escapeHtml(a.symbol.replace('.NS', ''))}</b>`,
+    `<b>${escapeHtml(displayStock(a.symbol, a.companyName))}</b>`,
     `Strategy: ${escapeHtml(a.strategyName)}`,
   ];
 

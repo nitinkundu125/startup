@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { fetchLtpForSymbol } from '@/lib/market-quotes';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { exitRule } from '@/lib/describe-strategy';
+import { getStockNames } from '@/lib/stock-names.server';
 
 /**
  * The user's open positions, with live P&L and exit state.
@@ -91,9 +92,11 @@ export async function GET() {
 
   const closed = positions.filter((p) => p.status === 'CLOSED');
 
+  const names = await getStockNames(positions.map((p) => p.symbol));
+
   return NextResponse.json({
     success: true,
-    rows,
+    rows: rows.map((r) => ({ ...r, companyName: names[r.symbol] ?? null })),
     summary: {
       holding: rows.length,
       invested: rows.reduce((n, r) => n + r.invested, 0),
@@ -104,6 +107,7 @@ export async function GET() {
     closed: closed.map((p) => ({
       id: p.id,
       symbol: p.symbol,
+      companyName: names[p.symbol] ?? null,
       strategyName: p.strategyName,
       entryPrice: p.entryPrice,
       exitPrice: p.exitPrice,

@@ -4,6 +4,7 @@ import { fetchYahooDaily, toPriceSeries } from '@/lib/index-history';
 import { runSplitBacktest } from '@/lib/dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { prisma } from '@/lib/prisma';
+import { getStockNames } from '@/lib/stock-names.server';
 import type { ScanRow } from '@/lib/scan-result';
 
 /** Kept as an alias: existing imports elsewhere still name it this. */
@@ -244,6 +245,14 @@ export async function POST(request: Request) {
     }
 
     batchResults.sort(rankByOutOfSample);
+
+    // Attached here rather than inside the per-symbol work, so cached rows get a
+    // name too and the cache never has to be invalidated to change a label.
+    const names = await getStockNames(batchResults.map((r) => r.symbol));
+    for (const row of batchResults) {
+      const name = names[row.symbol];
+      if (name) row.companyName = name;
+    }
 
     const matchedTotal = batchResults.reduce((n, r) => n + (r.matchedTotal ?? 0), 0);
 

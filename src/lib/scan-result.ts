@@ -10,6 +10,14 @@ import type { StrategyParams } from './dynamic-backtester';
  */
 export type ScanRow = {
   symbol: string;
+  /**
+   * Company name, when the symbol is in a synced index.
+   *
+   * Attached at response time rather than stored with the row: the scan cache
+   * holds these objects as JSON, and baking the name in would mean bumping the
+   * cache version — throwing away a day of scanning to change a label.
+   */
+  companyName?: string;
   strategyName: string;
 
   /** Fitted (selection) window. */

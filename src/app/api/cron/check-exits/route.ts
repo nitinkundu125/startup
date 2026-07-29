@@ -8,6 +8,8 @@ import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { isCronRequest } from '@/lib/cron-auth';
 import { sendTelegram, formatSignalAlert, notificationsConfigured } from '@/lib/notify';
 import { exitRule } from '@/lib/describe-strategy';
+import { getStockNames } from '@/lib/stock-names.server';
+import { displayStock } from '@/lib/stock-names';
 
 /**
  * Re-run each OPEN position's strategy and answer one question: sell yet?
@@ -43,6 +45,10 @@ export async function POST(request: Request) {
     if (positions.length === 0) {
       return NextResponse.json({ success: true, message: 'No open positions.' });
     }
+
+    // Alerts name the company, not the ticker — the message is read on a phone,
+    // away from the app, where "M&MFIN" is a puzzle.
+    const names = await getStockNames(positions.map((p) => p.symbol));
 
     const chatIdByUser = new Map<string, string>();
     if (notificationsConfigured()) {
@@ -101,12 +107,13 @@ export async function POST(request: Request) {
             ? [
                 '🛑 <b>STOP LOSS HIT</b>',
                 '',
-                `<b>${pos.symbol.replace('.NS', '')}</b>`,
+                `<b>${displayStock(pos.symbol, names[pos.symbol])}</b>`,
                 `Stop was ₹${pos.stopLossPrice!.toFixed(2)}, price is ₹${price.toFixed(2)}`,
                 `Position: ${pos.quantity} @ ₹${pos.entryPrice.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`,
               ].join('\n')
             : formatSignalAlert({
                 symbol: pos.symbol,
+                companyName: names[pos.symbol],
                 strategyName: pos.strategyName,
                 signal: 'NEW_SELL',
                 oosWinRate: split.outOfSample.winRate,
