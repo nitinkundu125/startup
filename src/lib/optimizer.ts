@@ -47,6 +47,8 @@ export type OptimizerFilters = {
   oosMinWinRate?: number;
   oosMinTrades?: number;
   oosMaxDrawdown?: number;
+  /** Best N strategies to return. 0 = all of them. */
+  topPerSymbol?: number;
 };
 
 export async function runOptimizer(
@@ -65,6 +67,7 @@ export async function runOptimizer(
   const oosWinFloor = clamp(filters.oosMinWinRate, 0, 100);
   const oosTradesFloor = clamp(filters.oosMinTrades, 0, 10_000);
   const oosDrawdownCeiling = clamp(filters.oosMaxDrawdown, 0, 100);
+  const topN = clamp(filters.topPerSymbol, 0, 1000);
 
   const period1 = backtestStartDate();
 
@@ -148,10 +151,9 @@ export async function runOptimizer(
   });
 
   return {
-    // No slice. This used to cap at 100, which quietly hid 177 of 277 strategies
-    // on a single-stock scan — a silent cap on the one view whose whole point is
-    // showing the full distribution. One symbol's worth of rows renders fine.
-    results,
+    // Caller's cap, or everything. The old hardcoded 100 quietly hid 177 of 277
+    // on the one view whose point is the full distribution.
+    results: topN > 0 ? results.slice(0, topN) : results,
     strategiesTested: MASTER_STRATEGY_LIBRARY.length,
     strategiesPassed,
     strategiesHeldUp,

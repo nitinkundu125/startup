@@ -272,6 +272,9 @@ model ScanFilter {
   oosMinTrades   Int   @default(0)
   oosMaxDrawdown Float @default(0)
 
+  /** Best N strategies kept per stock. 0 = keep all of them. */
+  topPerSymbol Int @default(10)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
