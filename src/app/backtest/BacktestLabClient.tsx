@@ -1350,23 +1350,13 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   </div>
                 </div>
 
-                {/* Selection ratio. Without it, "12 strategies cleared 67%" reads as
-                    discovery when it may just be what 46 tries against one price
-                    series produces by chance. */}
+                {/* The counts, as counts. */}
                 {optMeta && (
-                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    <p className="font-semibold">
-                      {optMeta.strategiesTested} strategies tested → {optMeta.strategiesPassed} cleared
-                      the 67% filter on the selection window → <span className="font-extrabold">{optMeta.strategiesHeldUp} stayed profitable on held-back data</span>.
-                    </p>
-                    <p className="mt-1 text-amber-800">
-                      Testing {optMeta.strategiesTested} rules against one price series will always
-                      surface some winners by chance. Only the held-back (OOS) columns are evidence.
-                      {optMeta.splitDate && (
-                        <> Split at {new Date(optMeta.splitDate).toLocaleDateString()}.</>
-                      )}
-                    </p>
-                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {optMeta.strategiesTested} tested · {optMeta.strategiesPassed} traded ·{' '}
+                    {optMeta.strategiesHeldUp} profitable out-of-sample
+                    {optMeta.splitDate && <> · split {new Date(optMeta.splitDate).toLocaleDateString()}</>}
+                  </p>
                 )}
               </div>
 

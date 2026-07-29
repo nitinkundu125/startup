@@ -10,9 +10,9 @@ import { Save, Trash2, Check } from 'lucide-react';
  * scan with whatever was left from last time. Presets make a filter a thing you
  * define once and reuse.
  *
- * Fitted and held-back floors are separated on purpose. They answer different
- * questions, and filtering on the held-back window has a cost the fitted one
- * does not — which is said on screen rather than buried here.
+ * Fitted and held-back floors are separated because they measure different
+ * windows. The distinction is in each group's tooltip; the UI states it once and
+ * then gets out of the way.
  */
 
 export type FilterValues = {
@@ -112,7 +112,6 @@ export function ScanFilters({
   }
 
   const active = Object.values(values).some((v) => v > 0);
-  const oosActive = values.oosMinWinRate > 0 || values.oosMinTrades > 0 || values.oosMaxDrawdown > 0;
   const current = presets.find((p) => p.id === selected);
   // Loaded a preset then changed a number — say so, rather than showing a name
   // that no longer matches what will run.
@@ -181,9 +180,12 @@ export function ScanFilters({
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
-        {([['Fitted window', 0], ['Held-back window (OOS)', 3]] as const).map(([title, offset]) => (
+        {([
+          ['Fitted window', 0, 'Measured on the data used to pick the strategy'],
+          ['Held-back window (OOS)', 3, 'Measured on data the strategy was not picked on. Filtering here uses that data to select, so survivors are no longer purely out-of-sample.'],
+        ] as const).map(([title, offset, tip]) => (
           <div key={title} className={`rounded-lg border p-3 ${offset ? 'border-indigo-200 bg-indigo-50/40' : 'border-slate-200'}`}>
-            <p className="text-xs font-bold uppercase tracking-wide mb-2 text-slate-600">{title}</p>
+            <p className="text-xs font-bold uppercase tracking-wide mb-2 text-slate-600" title={tip}>{title}</p>
             <div className="grid grid-cols-3 gap-2">
               {FIELDS.slice(offset, offset + 3).map((f) => (
                 <div key={f.key}>
@@ -208,14 +210,6 @@ export function ScanFilters({
           ? 'No filter — every strategy that traded is returned.'
           : 'Zero disables a field. Max DD is entered positive: 20 keeps nothing worse than −20%.'}
       </p>
-      {oosActive && (
-        // Said once, plainly. Filtering on held-back data uses it for selection,
-        // which is the one thing it was being kept clean for.
-        <p className="text-xs text-amber-700 mt-1">
-          Filtering on the held-back window uses it to choose, so the surviving numbers are no
-          longer purely out-of-sample evidence.
-        </p>
-      )}
     </div>
   );
 }
