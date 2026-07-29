@@ -19,14 +19,11 @@ import { Save, Trash2, Check, Activity } from 'lucide-react';
 export type FilterValues = {
   minWinRate: number; minTrades: number; maxDrawdown: number;
   oosMinWinRate: number; oosMinTrades: number; oosMaxDrawdown: number;
-  /** Best N strategies kept per stock. 0 = all of them. */
-  topPerSymbol: number;
 };
 
 export const EMPTY_FILTERS: FilterValues = {
   minWinRate: 0, minTrades: 0, maxDrawdown: 0,
   oosMinWinRate: 0, oosMinTrades: 0, oosMaxDrawdown: 0,
-  topPerSymbol: 10,
 };
 
 type Preset = FilterValues & { id: string; name: string };
@@ -75,7 +72,7 @@ export function ScanFilters({
   }, [load]);
 
   const set = (key: keyof FilterValues, raw: string) => {
-    const cap = key === 'topPerSymbol' ? 1000 : key.toLowerCase().includes('trades') ? 10_000 : 100;
+    const cap = key.toLowerCase().includes('trades') ? 10_000 : 100;
     onChange({ ...values, [key]: Math.min(cap, Math.max(0, Number(raw) || 0)) });
     setSelected(''); // edited by hand — no longer "the preset"
   };
@@ -88,7 +85,6 @@ export function ScanFilters({
     onChange({
       minWinRate: p.minWinRate, minTrades: p.minTrades, maxDrawdown: p.maxDrawdown,
       oosMinWinRate: p.oosMinWinRate, oosMinTrades: p.oosMinTrades, oosMaxDrawdown: p.oosMaxDrawdown,
-      topPerSymbol: p.topPerSymbol ?? 10,
     });
   };
 
@@ -133,7 +129,7 @@ export function ScanFilters({
     }
   }
 
-  const active = FIELDS.some((f) => values[f.key] > 0) || values.topPerSymbol !== 10;
+  const active = FIELDS.some((f) => values[f.key] > 0);
   const current = presets.find((p) => p.id === selected);
   // Loaded a preset then changed a number — say so, rather than showing a name
   // that no longer matches what will run.
@@ -153,21 +149,6 @@ export function ScanFilters({
             <option value="">{busy === 'loading' ? 'Loading saved filters…' : 'No filter — show everything'}</option>
             {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-        </div>
-
-        <div className="w-32">
-          <label
-            className="text-xs font-semibold text-slate-500 uppercase mb-1 block"
-            title="Best N strategies kept per stock, ranked out-of-sample. 0 keeps all of them."
-          >
-            Top per stock
-          </label>
-          <input
-            type="number" min={0} max={1000} disabled={disabled}
-            value={values.topPerSymbol}
-            onChange={(e) => set('topPerSymbol', e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
         </div>
 
         {naming ? (
@@ -249,9 +230,8 @@ export function ScanFilters({
       </div>
 
       <p className="text-xs text-slate-400 mt-2">
-        {values.topPerSymbol > 0
-          ? `Best ${values.topPerSymbol} per stock. Zero disables a field; Max DD is entered positive.`
-          : 'Every strategy that cleared the filters, for every stock. Zero disables a field.'}
+        Every strategy that cleared the filters, for every stock. Zero disables a
+        field; Max DD is entered positive.
       </p>
     </div>
   );
