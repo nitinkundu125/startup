@@ -74,9 +74,21 @@ ssh $SERVER << 'EOF'
   pm2 delete algo-engine 2>/dev/null || true
   pm2 start npm --name "algo-engine" -- run start
 
-  # Ensure PM2 starts on boot
+  # Ensure PM2 starts on boot.
   pm2 save
-  pm2 startup >/dev/null 2>&1 || true
+
+  # NOT `pm2 startup`. That regenerates the unit file, and the unit it generates
+  # is broken on this host: it declares PIDFile=/root/.pm2/pm2.pid, which systemd
+  # cannot read under SELinux, so the service fails on boot and the app never
+  # comes back. That is what kept it down for seven weeks from 2026-06-07.
+  # ops/pm2-root.service is the working version; install it only when it differs,
+  # so a deploy does not restart the unit for no reason.
+  if ! cmp -s ops/pm2-root.service /etc/systemd/system/pm2-root.service; then
+    echo "Installing pm2 systemd unit..."
+    cp ops/pm2-root.service /etc/systemd/system/pm2-root.service
+    systemctl daemon-reload
+    systemctl enable pm2-root >/dev/null 2>&1 || true
+  fi
 
   # Report actual state rather than assuming success.
   sleep 3

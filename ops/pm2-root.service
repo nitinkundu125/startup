@@ -1,0 +1,41 @@
+[Unit]
+Description=PM2 process manager
+Documentation=https://pm2.keymetrics.io/
+After=network.target
+
+[Service]
+# Getting this unit right took three attempts; the notes matter.
+#
+# The stock pm2-generated unit used Type=forking with PIDFile=/root/.pm2/pm2.pid.
+# SELinux is Enforcing here and systemd cannot read a pid file under /root
+# ("Can't convert PID files ... Permission denied"), so it declared the service
+# failed even though `pm2 resurrect` exited 0, retried five times and gave up.
+# Nothing started after the 2026-06-07 reboot and the app stayed down for seven
+# weeks.
+#
+# Type=oneshot then looked right — resurrect is a one-shot command — but a
+# oneshot unit is not allowed lingering processes: systemd stays in "activating"
+# until the cgroup empties, and the pm2 daemon never exits. It would time out and
+# kill the daemon roughly ninety seconds into every boot.
+#
+# Type=forking with GuessMainPID=no is the combination that fits: systemd marks
+# the unit active as soon as resurrect returns, tracks no main process, and
+# leaves the daemon alone. KillMode=process keeps a `systemctl stop` from
+# SIGKILLing the app out from under ExecStop.
+Type=forking
+GuessMainPID=no
+RemainAfterExit=yes
+KillMode=process
+TimeoutStartSec=60
+User=root
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Environment=PATH=/root/.local/bin:/root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+Environment=PM2_HOME=/root/.pm2
+ExecStart=/usr/lib/node_modules/pm2/bin/pm2 resurrect
+ExecReload=/usr/lib/node_modules/pm2/bin/pm2 reload all
+ExecStop=/usr/lib/node_modules/pm2/bin/pm2 kill
+
+[Install]
+WantedBy=multi-user.target

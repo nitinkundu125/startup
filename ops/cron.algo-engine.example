@@ -1,0 +1,20 @@
+# Reference copy. Install with scripts/install-ops.sh, which substitutes the
+# real CRON_SECRET from .env. Not applied automatically.
+# Algo Engine scheduled jobs.
+# The host clock is UTC and IST is a fixed UTC+5:30 (India has no DST), so times
+# here are UTC with the IST equivalent noted. The API endpoints are POST-only and
+# authenticate with CRON_SECRET; a GET returns 405.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Exit check: 11:00 UTC = 16:30 IST, weekdays, one hour after the NSE close.
+0 11 * * 1-5 root curl -sS -m 600 -X POST -H "x-cron-secret: $CRON_SECRET" http://localhost:3000/api/cron/check-exits >> /var/log/algo-engine-cron.log 2>&1
+
+# Index constituents: 02:00 UTC = 07:30 IST on the 1st of each month.
+0 2 1 * * root curl -sS -m 1800 -X POST -H "x-cron-secret: $CRON_SECRET" http://localhost:3000/api/cron/sync-indices >> /var/log/algo-engine-cron.log 2>&1
+
+# Database backup: 20:00 UTC = 01:30 IST daily, 14-day retention.
+0 20 * * * root /opt/algo-engine/backup-db.sh >> /var/log/algo-engine-cron.log 2>&1
+
+# Is it alive? Every 10 minutes. Self-heals, then alerts once per outage.
+*/10 * * * * root /opt/algo-engine/healthcheck.sh >> /var/log/algo-engine-health.log 2>&1
