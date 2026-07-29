@@ -144,6 +144,46 @@ model ScreenerSignal {
   @@index([userId, symbol, date])
 }
 
+/**
+ * Index membership over time, synced from NSE.
+ *
+ * Stored as PERIODS rather than a snapshot per sync: one row per (index, symbol,
+ * spell), with firstSeen when it appeared and lastSeen from the most recent sync
+ * that still listed it. A symbol dropped from the index keeps its row with
+ * active=false, so its membership window survives.
+ *
+ * This is what eventually kills the survivorship bias. Today the app can only
+ * scan CURRENT members over all history — testing companies already known to
+ * have survived. Once a couple of years of these rows exist, a backtest can ask
+ * "who was actually in the Nifty 50 in March 2027" and get an honest answer.
+ * A symbol can rejoin an index, hence the spell-based unique key.
+ */
+model IndexMembership {
+  id        String   @id @default(uuid())
+  indexId   String   // nifty50 | nifty100 | midcap150 | smallcap250 | nifty500
+  symbol    String   // Yahoo-style, e.g. RELIANCE.NS
+  company   String?
+  industry  String?
+  firstSeen DateTime
+  lastSeen  DateTime
+  active    Boolean  @default(true)
+
+  @@unique([indexId, symbol, firstSeen])
+  @@index([indexId, active])
+  @@index([indexId, lastSeen])
+}
+
+/** Last run per index, so a failed sync is visible instead of silent. */
+model IndexSyncLog {
+  indexId   String   @id
+  syncedAt  DateTime
+  count     Int
+  added     Int      @default(0)
+  removed   Int      @default(0)
+  ok        Boolean  @default(true)
+  error     String?
+}
+
 model ScanCache {
   id        String   @id @default(uuid())
   symbol    String

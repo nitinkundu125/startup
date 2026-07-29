@@ -136,6 +136,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
   // Batch Scanner State
   const [batchLoading, setBatchLoading] = useState(false);
+  /** Provenance of the scanned universe — synced from NSE, or the built-in list. */
+  const [universeSource, setUniverseSource] = useState<string | null>(null);
 
   const displayedResults = useMemo(() => {
     if (!batchResults) return [];
@@ -397,6 +399,46 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
   }
 
+  /**
+   * Resolve the chosen universe, then scan it.
+   *
+   * Index membership comes from the server (synced monthly from NSE) rather
+   * than the hardcoded arrays, so a reconstitution shows up without a code
+   * change. The built-in list is the fallback if the lookup fails, so a network
+   * blip degrades to a stale universe rather than an empty one.
+   */
+  async function handleScanClick() {
+    if (selectedIndex === 'watchlist') return handleRunBatch(watchlist.map((w) => w.symbol));
+    if (selectedIndex === 'pinned') {
+      return handleRunBatch(Array.from(new Set(pinnedStrategies.map((p) => p.symbol))));
+    }
+
+    const builtin: Record<string, string[]> = {
+      nifty50: NIFTY_50_SYMBOLS,
+      nifty100: NIFTY_100_SYMBOLS,
+      midcap150: NIFTY_MIDCAP_150_SYMBOLS,
+      smallcap250: NIFTY_SMALLCAP_250_SYMBOLS,
+      nifty500: NIFTY_500_SYMBOLS,
+    };
+
+    try {
+      const res = await fetch(`/api/backtest/symbols?index=${encodeURIComponent(selectedIndex)}`);
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.symbols) && data.symbols.length > 0) {
+        setUniverseSource(
+          data.source === 'nse-sync'
+            ? `${data.count} symbols · synced ${data.staleDays === 0 ? 'today' : `${data.staleDays}d ago`}`
+            : `${data.count} symbols · built-in list, never synced`
+        );
+        return handleRunBatch(data.symbols);
+      }
+    } catch {
+      // fall through to the built-in list
+    }
+    setUniverseSource(`${(builtin[selectedIndex] ?? []).length} symbols · built-in list`);
+    return handleRunBatch(builtin[selectedIndex] ?? NIFTY_500_SYMBOLS);
+  }
+
   async function handleRunBatch(symbolsToScan: string[]) {
     if (symbolsToScan.length === 0) return;
     setBatchLoading(true);
@@ -636,7 +678,15 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   <ShieldCheck className="h-5 w-5 text-blue-500" />
                   Portfolio Batch Scanner
                 </h2>
-                <p className="text-sm text-slate-500">Run the entire Master Strategy Library simultaneously against all {watchlist.length} stocks in your Watchlist.</p>
+                <p className="text-sm text-slate-500">
+                  Run the entire Master Strategy Library against your chosen universe.
+                  {universeSource && (
+                    // Say where the list came from. A built-in list that has
+                    // never synced is a stale universe, and that should be
+                    // visible rather than implied.
+                    <span className="ml-1 text-slate-400">Last scan: {universeSource}.</span>
+                  )}
+                </p>
               </div>
               {/* One dropdown, one button. "Scan Watchlist" and "Scan Index"
                   were two buttons doing the same thing against different symbol
@@ -657,15 +707,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   <option value="nifty500">Nifty 500 (All)</option>
                 </select>
                 <Button
-                  onClick={() => {
-                    if (selectedIndex === 'watchlist') handleRunBatch(watchlist.map((w) => w.symbol));
-                    else if (selectedIndex === 'pinned') handleRunBatch(Array.from(new Set(pinnedStrategies.map((p) => p.symbol))));
-                    else if (selectedIndex === 'nifty50') handleRunBatch(NIFTY_50_SYMBOLS);
-                    else if (selectedIndex === 'nifty100') handleRunBatch(NIFTY_100_SYMBOLS);
-                    else if (selectedIndex === 'midcap150') handleRunBatch(NIFTY_MIDCAP_150_SYMBOLS);
-                    else if (selectedIndex === 'smallcap250') handleRunBatch(NIFTY_SMALLCAP_250_SYMBOLS);
-                    else handleRunBatch(NIFTY_500_SYMBOLS);
-                  }}
+                  onClick={() => { void handleScanClick(); }}
                   disabled={batchLoading || (selectedIndex === 'watchlist' && watchlist.length === 0)}
                   className="bg-blue-600 hover:bg-blue-700 text-white border-none rounded-l-none rounded-r-md px-5 whitespace-nowrap"
                 >
