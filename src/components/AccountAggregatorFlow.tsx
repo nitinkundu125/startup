@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import { apiFetch } from '@/lib/api-fetch';
 import { useRouter } from 'next/navigation';
-import { Card, CardHeader } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Alert } from '@/components/ui/Alert';
 import { Smartphone, ShieldCheck, KeyRound, Loader2, ArrowRight, Building2 } from 'lucide-react';
 
 export function AccountAggregatorFlow() {

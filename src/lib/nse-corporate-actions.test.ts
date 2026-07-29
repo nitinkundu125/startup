@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseNseSubject,
   parseNseDate,
-  parseNseRows,
-} from './nse-corporate-actions.ts';
+  } from './nse-corporate-actions.ts';
 
 describe('NSE corporate action parsing', () => {
   it('parses Kotak 5:1 face value split', () => {

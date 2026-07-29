@@ -9,7 +9,6 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
-  BarChart,
   Bar,
   ComposedChart,
   XAxis,

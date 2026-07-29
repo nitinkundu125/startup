@@ -3,7 +3,7 @@ import { requireValidUser } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 
-export async function GET(request: Request) {
+export async function GET() {
   const user = await requireValidUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' }
     });
     return NextResponse.json({ watchlist });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
@@ -74,7 +74,7 @@ export async function DELETE(request: Request) {
 
     revalidatePath('/watchlist');
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

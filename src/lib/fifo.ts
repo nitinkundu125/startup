@@ -76,7 +76,7 @@ export function applyDematReset(
 export function sellLots(position: FifoPosition, quantity: number): number {
   if (quantity <= QTY_EPS || position.quantity <= QTY_EPS) return 0;
 
-  let toSell = Math.min(quantity, position.quantity);
+  const toSell = Math.min(quantity, position.quantity);
   let remaining = toSell;
 
   while (remaining > QTY_EPS && position.lots.length > 0) {

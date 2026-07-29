@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Upload } from 'lucide-react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { HoldingsTable, type HoldingRow } from '@/components/HoldingsTable';
+import { HoldingsTable } from '@/components/HoldingsTable';
 import { RefreshLtpButton } from '@/components/RefreshLtpButton';
 import { UploadForm } from '@/components/UploadForm';
 import type { PortfolioSummary } from '@/lib/portfolio';

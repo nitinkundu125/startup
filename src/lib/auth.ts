@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { getSessionUserId, getVerifiedSession } from '@/lib/session';
+import { getVerifiedSession } from '@/lib/session';
 
 export async function registerUser(
   email: string,

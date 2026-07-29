@@ -34,7 +34,6 @@ for (const r of processed) {
 }
 
 const txs = [];
-let id = 0;
 for (const [symbol, rows] of bySym) {
   const assetId = `sym-${symbol}`;
   for (const r of rows.sort((a, b) => a.tradeDate - b.tradeDate)) {

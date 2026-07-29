@@ -5,7 +5,7 @@ import { apiFetch } from '@/lib/api-fetch';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Activity, Zap, ShieldCheck, Plus, Settings2 } from 'lucide-react';
-import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
+import type { StrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
 import { ScanFilters, EMPTY_FILTERS, type FilterValues } from '@/components/ScanFilters';

@@ -308,7 +308,7 @@ RELIANCE,INE002A01018,2021-06-01,NSE,EQ,EQ,sell,false,5,2200,2,2,2021-06-01T10:0
     const processed = preprocessCorporateActions(rows);
     assert.equal(processed.length, 2);
     const summary = buildPortfolioSummary(
-      processed.map((r, i) =>
+      processed.map((r) =>
         tx({
           assetId: 'rel',
           type: r.type,

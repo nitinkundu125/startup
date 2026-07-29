@@ -90,9 +90,6 @@ export function simulateIndexMonthEnds(
   const result = new Map<string, number>();
   if (!events.length || !indexSeries.length || !monthKeys.length) return result;
 
-  let units = 0;
-  let eventIdx = 0;
-
   for (const ym of monthKeys) {
     const end = monthEndDate(ym);
     const endValue = calculateIndexTerminalValue(events, indexSeries, end);

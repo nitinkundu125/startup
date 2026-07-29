@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireValidUser } from '@/lib/auth';
 import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
-import { runSplitBacktest, StrategyParams } from '@/lib/dynamic-backtester';
+import { runSplitBacktest } from '@/lib/dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { prisma } from '@/lib/prisma';
 import type { ScanRow } from '@/lib/scan-result';

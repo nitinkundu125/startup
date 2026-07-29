@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Briefcase, ActivitySquare, Zap, User } from 'lucide-react';
 
 const links = [
   { href: '/', label: 'Dashboard' },

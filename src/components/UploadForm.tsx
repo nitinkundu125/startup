@@ -6,8 +6,6 @@ import { useRouter } from 'next/navigation';
 import { Activity,
   Upload,
   FileText,
-  CheckCircle2,
-  AlertCircle,
   X,
   ChevronDown,
   ChevronUp,

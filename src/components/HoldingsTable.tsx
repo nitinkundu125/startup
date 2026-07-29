@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
 import { formatINR, formatUSD, formatQuantity } from '@/lib/format';
 import { formatAssetLabel } from '@/lib/asset-identity';
@@ -80,12 +79,9 @@ function compare(a: EnrichedHolding, b: EnrichedHolding, key: SortKey): number {
 }
 
 export function HoldingsTable({ holdings, showInvestedValue, currency = 'INR', effectiveRate = 1 }: { holdings: HoldingRow[], showInvestedValue?: boolean, currency?: 'USD' | 'INR', effectiveRate?: number }) {
-  const router = useRouter();
   const [sortKey, setSortKey] = useState<SortKey>('totalValue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [query, setQuery] = useState('');
-  
-  const [updatingBench, setUpdatingBench] = useState<string | null>(null);
 
   const displayFormat = currency === 'USD' ? formatUSD : formatINR;
 
