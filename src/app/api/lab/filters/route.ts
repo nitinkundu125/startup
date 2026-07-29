@@ -12,7 +12,6 @@ import { prisma } from '@/lib/prisma';
 const NUM_FIELDS = [
   'minWinRate', 'minTrades', 'maxDrawdown',
   'oosMinWinRate', 'oosMinTrades', 'oosMaxDrawdown',
-  'topPerSymbol',
 ] as const;
 
 /** Percentages cap at 100; trade counts do not. All clamp at 0 = disabled. */
@@ -20,11 +19,10 @@ function clean(body: Record<string, unknown>) {
   const out: Record<string, number> = {};
   for (const f of NUM_FIELDS) {
     const n = Number(body[f]);
-    const hi = f === 'topPerSymbol' ? 1000 : f.toLowerCase().includes('trades') ? 10_000 : 100;
+    const hi = f.toLowerCase().includes('trades') ? 10_000 : 100;
     out[f] = Number.isFinite(n) ? Math.min(hi, Math.max(0, n)) : 0;
   }
   out.minTrades = Math.round(out.minTrades);
-  out.topPerSymbol = Math.round(out.topPerSymbol);
   out.oosMinTrades = Math.round(out.oosMinTrades);
   return out;
 }
@@ -54,8 +52,7 @@ export async function POST(request: Request) {
 
     // A preset where everything is 0 filters nothing — saving it would look
     // like a saved filter and behave like none.
-    const { topPerSymbol: _cap, ...floors } = values;
-    if (Object.values(floors).every((v) => v === 0) && values.topPerSymbol === 0) {
+    if (Object.values(values).every((v) => v === 0)) {
       return NextResponse.json(
         { error: 'Set at least one value — a preset of all zeros filters nothing' },
         { status: 400 }

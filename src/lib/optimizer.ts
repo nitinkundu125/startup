@@ -6,15 +6,35 @@ import {
 } from './dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from './strategy-library';
 
+/**
+ * Same shape the batch scanner returns.
+ *
+ * Scanning one stock and scanning five hundred are the same operation with a
+ * different symbol list, so they now produce identical rows and share one table
+ * — two result shapes meant two tables that drifted apart.
+ */
 export type OptimizerResult = {
-  strategy: StrategyParams;
-  /** Whole-history stats. Display only — the selection was fitted on part of this. */
-  stats: DynamicBacktestResult;
-  /** Selection window. The win-rate filter is applied to this. */
-  inSample: DynamicBacktestResult;
-  /** Held-back window. This is the number that actually means something. */
-  outOfSample: DynamicBacktestResult;
+  symbol: string;
+  strategyName: string;
+  totalTrades: number;
+  profitableTrades: number;
+  winRate: number;
+  averageReturn: number;
+  totalReturn: number;
+  maxDrawdown: number;
+  equityMaxDrawdown: number;
+  oosTotalTrades: number;
+  oosWinRate: number;
+  oosAverageReturn: number;
+  oosTotalReturn: number;
+  oosMaxDrawdown: number;
+  oosEquityMaxDrawdown: number;
+  heldUp: boolean;
   splitDate: string | null;
+  strategy: StrategyParams;
+  currentSignal?: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
+  lastClose?: number;
+  matchedTotal?: number;
 };
 
 export type OptimizerReport = {
@@ -47,8 +67,6 @@ export type OptimizerFilters = {
   oosMinWinRate?: number;
   oosMinTrades?: number;
   oosMaxDrawdown?: number;
-  /** Best N strategies to return. 0 = all of them. */
-  topPerSymbol?: number;
 };
 
 export async function runOptimizer(
@@ -67,7 +85,6 @@ export async function runOptimizer(
   const oosWinFloor = clamp(filters.oosMinWinRate, 0, 100);
   const oosTradesFloor = clamp(filters.oosMinTrades, 0, 10_000);
   const oosDrawdownCeiling = clamp(filters.oosMaxDrawdown, 0, 100);
-  const topN = clamp(filters.topPerSymbol, 0, 1000);
 
   const period1 = backtestStartDate();
 
@@ -117,7 +134,8 @@ export async function runOptimizer(
     }
     if (oosDrawdownCeiling > 0 && Math.abs(split.outOfSample.maxDrawdown) > oosDrawdownCeiling) continue;
 
-    if (split.full.totalTrades > 0) strategiesPassed++;
+    if (split.full.totalTrades === 0) continue;
+    strategiesPassed++;
     if (
       split.outOfSample.totalTrades >= MIN_OOS_TRADES &&
       split.outOfSample.winRate >= HELD_UP_MIN_WIN_RATE
@@ -125,35 +143,46 @@ export async function runOptimizer(
       strategiesHeldUp++;
     }
 
+    const { inSample, outOfSample } = split;
     results.push({
-      strategy: strat,
-      stats: split.full,
-      inSample: split.inSample,
-      outOfSample: split.outOfSample,
+      symbol,
+      strategyName: strat.type === 'COMPOUND' ? (strat.name || 'Custom Compound') : `Single ${strat.type}`,
+      totalTrades: inSample.totalTrades,
+      profitableTrades: inSample.profitableTrades,
+      winRate: inSample.winRate,
+      averageReturn: inSample.averageReturn,
+      totalReturn: inSample.totalReturn,
+      maxDrawdown: inSample.maxDrawdown,
+      equityMaxDrawdown: inSample.equityMaxDrawdown,
+      oosTotalTrades: outOfSample.totalTrades,
+      oosWinRate: outOfSample.winRate,
+      oosAverageReturn: outOfSample.averageReturn,
+      oosTotalReturn: outOfSample.totalReturn,
+      oosMaxDrawdown: outOfSample.maxDrawdown,
+      oosEquityMaxDrawdown: outOfSample.equityMaxDrawdown,
+      heldUp: outOfSample.totalTrades >= MIN_OOS_TRADES && outOfSample.winRate >= HELD_UP_MIN_WIN_RATE,
       splitDate: split.splitDate ? split.splitDate.toISOString() : null,
+      strategy: strat,
+      currentSignal: outOfSample.currentSignal,
+      lastClose: closes[closes.length - 1],
     });
   }
 
-  // Rank by win rate over the stock's full history — the number being displayed.
-  // Strategies that never triggered sort last; a 0-trade strategy has no win
-  // rate, and 0% would read as "it lost" rather than "it never fired".
+  // Same ranking as the batch scanner: validated results first, then by
+  // out-of-sample performance. One ordering for one table.
   results.sort((a, b) => {
-    const at = a.stats.totalTrades > 0;
-    const bt = b.stats.totalTrades > 0;
-    if (at !== bt) return at ? -1 : 1;
-    if (!at) return 0;
-    if (b.stats.winRate !== a.stats.winRate) return b.stats.winRate - a.stats.winRate;
-    if (b.stats.averageReturn !== a.stats.averageReturn) {
-      return b.stats.averageReturn - a.stats.averageReturn;
-    }
-    // More trades behind the same win rate is the stronger result.
-    return b.stats.totalTrades - a.stats.totalTrades;
+    const av = a.oosTotalTrades >= MIN_OOS_TRADES;
+    const bv = b.oosTotalTrades >= MIN_OOS_TRADES;
+    if (av !== bv) return av ? -1 : 1;
+    if (!av) return b.oosTotalTrades - a.oosTotalTrades;
+    if (b.oosWinRate !== a.oosWinRate) return b.oosWinRate - a.oosWinRate;
+    return b.oosAverageReturn - a.oosAverageReturn;
   });
+  if (results.length > 0) results[0].matchedTotal = results.length;
 
   return {
-    // Caller's cap, or everything. The old hardcoded 100 quietly hid 177 of 277
-    // on the one view whose point is the full distribution.
-    results: topN > 0 ? results.slice(0, topN) : results,
+    // Everything. Filtering is the user's job, not a hidden slice.
+    results,
     strategiesTested: MASTER_STRATEGY_LIBRARY.length,
     strategiesPassed,
     strategiesHeldUp,

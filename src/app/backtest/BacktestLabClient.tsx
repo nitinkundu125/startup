@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, Fragment, useMemo, useEffect } from 'react';
-import { Card, CardHeader } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, X } from 'lucide-react';
+import { Activity, Zap, ShieldCheck, Plus, Settings2 } from 'lucide-react';
 import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
@@ -15,24 +15,6 @@ type WatchlistItem = {
   symbol: string;
 };
 
-function renderCondition(cond: SingleStrategyParams): string {
-  switch (cond.type) {
-    case 'RSI': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
-    case 'SMA': return `Fast: ${cond.fastPeriod}, Slow: ${cond.slowPeriod}`;
-    case 'EMA': return `Fast: ${cond.fastPeriod}, Slow: ${cond.slowPeriod}`;
-    case 'MACD': return `Fast: ${cond.fastPeriod}, Slow: ${cond.slowPeriod}, Sig: ${cond.signalPeriod}`;
-    case 'BB': return `Period: ${cond.period}, StdDev: ${cond.multiplier}`;
-    case 'STOCH': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
-    case 'ATR': return `Period: ${cond.period}, Mult: ${cond.multiplier}`;
-    case 'VWAP': return `Period: ${cond.period}`;
-    case 'OBV': return `Period: ${cond.period}`;
-    case 'ADX': return `Period: ${cond.period}, Thresh: ${cond.strongThreshold}`;
-    case 'CCI': return `Period: ${cond.period}, OS: ${cond.oversold}, OB: ${cond.overbought}`;
-    case 'PSAR': return `Step: ${cond.step}, Max: ${cond.maxStep}`;
-    case 'ICHIMOKU': return `Tenkan: ${cond.tenkan}, Kijun: ${cond.kijun}, SenkouB: ${cond.senkouB}`;
-    default: return '';
-  }
-}
 
 import { useBacktestStore } from '@/lib/backtest-store';
 
@@ -40,12 +22,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(initialWatchlist);
   
   const {
-    activeTab, setActiveTab,
+    scanMode, setScanMode,
     symbol, setSymbol,
-    stratType, setStratType,
-    customResult, setCustomResult,
-    optResults, setOptResults,
-    batchResults, setBatchResults, appendBatchResults,
+    results: batchResults, setResults: setBatchResults, appendResults: appendBatchResults,
     selectedIndex, setSelectedIndex
   } = useBacktestStore();
 
@@ -56,49 +35,19 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   }, [initialWatchlist, symbol, setSymbol]);
   
   // Expanded state for optimizer rows
-  const [expandedOptCard, setExpandedOptCard] = useState<number | null>(null);
   
   // Custom Builder State (Inputs are kept local to avoid massive refactor of 20 variables, they aren't critical to persist like the scan results)
-  const [rsiPeriod, setRsiPeriod] = useState(14);
-  const [rsiOversold, setRsiOversold] = useState(30);
-  const [rsiOverbought, setRsiOverbought] = useState(70);
   
-  const [smaFast, setSmaFast] = useState(50);
-  const [smaSlow, setSmaSlow] = useState(200);
 
-  const [macdFast, setMacdFast] = useState(12);
-  const [macdSlow, setMacdSlow] = useState(26);
-  const [macdSignal, setMacdSignal] = useState(9);
 
-  const [bbPeriod, setBbPeriod] = useState(20);
-  const [bbMultiplier, setBbMultiplier] = useState(2);
 
-  const [stochPeriod, setStochPeriod] = useState(14);
-  const [stochOversold, setStochOversold] = useState(20);
-  const [stochOverbought, setStochOverbought] = useState(80);
 
-  const [atrPeriod, setAtrPeriod] = useState(14);
-  const [atrMultiplier, setAtrMultiplier] = useState(2);
 
-  const [emaFast, setEmaFast] = useState(20);
-  const [emaSlow, setEmaSlow] = useState(50);
 
-  const [vwapPeriod, setVwapPeriod] = useState(20);
-  const [obvPeriod, setObvPeriod] = useState(20);
   
-  const [adxPeriod, setAdxPeriod] = useState(14);
-  const [adxThreshold, setAdxThreshold] = useState(25);
 
-  const [cciPeriod, setCciPeriod] = useState(20);
-  const [cciOversold, setCciOversold] = useState(-100);
-  const [cciOverbought, setCciOverbought] = useState(100);
 
-  const [psarStep, setPsarStep] = useState(0.02);
-  const [psarMax, setPsarMax] = useState(0.2);
 
-  const [ichiTenkan, setIchiTenkan] = useState(9);
-  const [ichiKijun, setIchiKijun] = useState(26);
-  const [ichiSenkou, setIchiSenkou] = useState(52);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState(initialWatchlist[0]?.symbol || '');
@@ -123,16 +72,6 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   // Sorting
   const [batchSortBy, setBatchSortBy] = useState<'winRate' | 'signal'>('winRate');
 
-  const [customLoading, setCustomLoading] = useState(false);
-
-  // Optimizer State
-  const [optLoading, setOptLoading] = useState(false);
-  const [optMeta, setOptMeta] = useState<{
-    strategiesTested: number;
-    strategiesPassed: number;
-    strategiesHeldUp: number;
-    splitDate: string | null;
-  } | null>(null);
 
   // Batch Scanner State
   const [batchLoading, setBatchLoading] = useState(false);
@@ -264,7 +203,6 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   
 
 
-  const [runningCron, setRunningCron] = useState(false);
 
 
 
@@ -289,91 +227,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
   }
 
-  async function handleRunCustom(e: React.FormEvent) {
-    e.preventDefault();
-    if (!symbol) return;
-    
-    setCustomLoading(true);
-    setCustomResult(null);
 
-    let strategy: StrategyParams;
-    if (stratType === 'RSI') {
-      strategy = { type: 'RSI', period: rsiPeriod, oversold: rsiOversold, overbought: rsiOverbought };
-    } else if (stratType === 'SMA') {
-      strategy = { type: 'SMA', fastPeriod: smaFast, slowPeriod: smaSlow };
-    } else if (stratType === 'EMA') {
-      strategy = { type: 'EMA', fastPeriod: emaFast, slowPeriod: emaSlow };
-    } else if (stratType === 'MACD') {
-      strategy = { type: 'MACD', fastPeriod: macdFast, slowPeriod: macdSlow, signalPeriod: macdSignal };
-    } else if (stratType === 'BB') {
-      strategy = { type: 'BB', period: bbPeriod, multiplier: bbMultiplier };
-    } else if (stratType === 'STOCH') {
-      strategy = { type: 'STOCH', period: stochPeriod, smoothK: 3, smoothD: 3, oversold: stochOversold, overbought: stochOverbought };
-    } else if (stratType === 'VWAP') {
-      strategy = { type: 'VWAP', period: vwapPeriod };
-    } else if (stratType === 'OBV') {
-      strategy = { type: 'OBV', period: obvPeriod };
-    } else if (stratType === 'ADX') {
-      strategy = { type: 'ADX', period: adxPeriod, strongThreshold: adxThreshold };
-    } else if (stratType === 'CCI') {
-      strategy = { type: 'CCI', period: cciPeriod, oversold: cciOversold, overbought: cciOverbought };
-    } else if (stratType === 'PSAR') {
-      strategy = { type: 'PSAR', step: psarStep, maxStep: psarMax };
-    } else if (stratType === 'ICHIMOKU') {
-      strategy = { type: 'ICHIMOKU', tenkan: ichiTenkan, kijun: ichiKijun, senkouB: ichiSenkou };
-    } else {
-      strategy = { type: 'ATR', period: atrPeriod, multiplier: atrMultiplier };
-    }
-
-    try {
-      const res = await fetch('/api/backtest/custom', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategy })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setCustomResult(data.stats);
-      } else {
-        alert(data.error);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setCustomLoading(false);
-    }
-  }
-
-  async function handleRunOptimizer() {
-    if (!symbol) return;
-    
-    setOptLoading(true);
-    setOptResults(null);
-
-    try {
-      const res = await fetch('/api/backtest/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, ...filters })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setOptResults(data.results);
-        setOptMeta({
-          strategiesTested: data.strategiesTested ?? 0,
-          strategiesPassed: data.strategiesPassed ?? 0,
-          strategiesHeldUp: data.strategiesHeldUp ?? 0,
-          splitDate: data.splitDate ?? null,
-        });
-      } else {
-        alert(data.error);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setOptLoading(false);
-    }
-  }
 
   /**
    * Resolve the chosen universe, then scan it.
@@ -384,6 +238,14 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
    * blip degrades to a stale universe rather than an empty one.
    */
   async function handleScanClick() {
+    // A single stock is a list of one — same pipeline, same table, no second
+    // code path to keep in step.
+    if (scanMode === 'single') {
+      const one = symbol.trim().toUpperCase();
+      if (!one) return;
+      setUniverseSource('1 symbol');
+      return handleRunBatch([one.includes('.') ? one : `${one}.NS`]);
+    }
     if (selectedIndex === 'watchlist') return handleRunBatch(watchlist.map((w) => w.symbol));
     if (selectedIndex === 'pinned') {
       const held = await fetch('/api/lab/tracked').then(r => r.json()).catch(() => null);
@@ -511,27 +373,22 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
             <Zap className="h-6 w-6 text-yellow-500" />
             Quant Backtest Laboratory
           </h1>
-          <p className="text-slate-500">Discover mechanical alpha using the Master Strategy Library.</p>
+          <p className="text-slate-500">Run every strategy against a list of stocks, or a single one.</p>
         </div>
         
+        {/* Two ways to scan, and that is the whole choice. */}
         <div className="flex bg-slate-100 p-1 rounded-lg">
-          <button 
-            onClick={() => setActiveTab('batch')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'batch' ? 'bg-white shadow text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}
+          <button
+            onClick={() => setScanMode('list')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${scanMode === 'list' ? 'bg-white shadow text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}
           >
-            Batch Scanner
+            Index or list
           </button>
-          <button 
-            onClick={() => setActiveTab('optimizer')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'optimizer' ? 'bg-white shadow text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}
+          <button
+            onClick={() => setScanMode('single')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${scanMode === 'single' ? 'bg-white shadow text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}
           >
-            Auto-Optimizer
-          </button>
-          <button 
-            onClick={() => setActiveTab('custom')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'custom' ? 'bg-white shadow text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}
-          >
-            Custom Builder
+            Single stock
           </button>
         </div>
       </div>
@@ -613,7 +470,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
       {/* Pinning is gone entirely. An open position is the only thing tracked,
           and the exit check walks open positions directly. */}
 
-      {activeTab !== 'batch' && (
+      {scanMode === 'single' && (
         <Card className="bg-slate-50 border-slate-200">
           <div className="p-4 flex flex-col md:flex-row items-center gap-4">
             <label className="font-semibold text-slate-700 whitespace-nowrap">Target Stock:</label>
@@ -665,14 +522,14 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         </Card>
       )}
 
-      {activeTab === 'batch' && (
+      {(
         <Card className="border-slate-200 shadow-sm p-0 overflow-hidden">
           <div className="bg-slate-50 border-b border-slate-100 flex flex-col gap-4 p-6">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between w-full gap-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <ShieldCheck className="h-5 w-5 text-blue-500" />
-                  Portfolio Batch Scanner
+                  {scanMode === 'single' ? 'Scan a stock' : 'Scan a list'}
                 </h2>
                 <p className="text-sm text-slate-500">
                   Run the entire Master Strategy Library against your chosen universe.
@@ -688,23 +545,37 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   were two buttons doing the same thing against different symbol
                   lists — the watchlist is now just another entry in the list. */}
               <div className="flex shadow-sm rounded-md w-full md:w-auto">
-                <select
-                  value={selectedIndex}
-                  onChange={(e) => setSelectedIndex(e.target.value)}
-                  className="flex-1 px-3 py-2 text-sm focus:outline-none border border-r-0 border-slate-300 bg-white text-slate-700 font-medium rounded-l-md"
-                  disabled={batchLoading}
-                >
-                  <option value="watchlist">My Watchlist ({watchlist.length})</option>
-                  <option value="pinned">My Holdings</option>
-                  <option value="nifty50">Nifty 50</option>
-                  <option value="nifty100">Nifty 100</option>
-                  <option value="midcap150">Midcap 150</option>
-                  <option value="smallcap250">Smallcap 250</option>
-                  <option value="nifty500">Nifty 500 (All)</option>
-                </select>
+                {scanMode === 'list' ? (
+                  <select
+                    value={selectedIndex}
+                    onChange={(e) => setSelectedIndex(e.target.value)}
+                    className="flex-1 px-3 py-2 text-sm focus:outline-none border border-r-0 border-slate-300 bg-white text-slate-700 font-medium rounded-l-md"
+                    disabled={batchLoading}
+                  >
+                    <option value="nifty50">Nifty 50</option>
+                    <option value="nifty100">Nifty 100</option>
+                    <option value="midcap150">Midcap 150</option>
+                    <option value="smallcap250">Smallcap 250</option>
+                    <option value="nifty500">Nifty 500</option>
+                    <option value="watchlist">My Watchlist ({watchlist.length})</option>
+                    <option value="pinned">My Holdings</option>
+                  </select>
+                ) : (
+                  <input
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                    placeholder="RELIANCE.NS"
+                    disabled={batchLoading}
+                    className="flex-1 px-3 py-2 text-sm focus:outline-none border border-r-0 border-slate-300 bg-white text-slate-700 font-medium rounded-l-md"
+                  />
+                )}
                 <Button
                   onClick={() => { void handleScanClick(); }}
-                  disabled={batchLoading || (selectedIndex === 'watchlist' && watchlist.length === 0)}
+                  disabled={
+                    batchLoading ||
+                    (scanMode === 'single' && !symbol.trim()) ||
+                    (scanMode === 'list' && selectedIndex === 'watchlist' && watchlist.length === 0)
+                  }
                   className="bg-blue-600 hover:bg-blue-700 text-white border-none rounded-l-none rounded-r-md px-5 whitespace-nowrap"
                 >
                   {batchLoading
@@ -1010,491 +881,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           three views, and this rendered two of them again a few hundred pixels
           lower with different styling. */}
 
-      {activeTab === 'custom' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1 space-y-6">
-            <Card>
-              <CardHeader title="Build Strategy" />
-              <div className="p-5 pt-0">
-                <form onSubmit={handleRunCustom} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Indicator Type</label>
-                    <select 
-                      value={stratType} 
-                      onChange={(e) => setStratType(e.target.value as any)}
-                      className="w-full rounded border border-slate-300 p-2 text-sm"
-                    >
-                      <option value="RSI">RSI (Momentum Reversion)</option>
-                      <option value="SMA">SMA (Trend Crossover)</option>
-                      <option value="EMA">EMA (Fast Trend Crossover)</option>
-                      <option value="MACD">MACD (Momentum Crossover)</option>
-                      <option value="BB">Bollinger Bands (Momentum Breakout)</option>
-                      <option value="STOCH">Stochastic (Momentum Reversion)</option>
-                      <option value="ATR">ATR (Volatility Trail)</option>
-                      <option value="VWAP">VWAP (Institutional Value)</option>
-                      <option value="OBV">OBV (Volume Trend)</option>
-                      <option value="ADX">ADX (Trend Strength)</option>
-                      <option value="CCI">CCI (Cyclical Momentum)</option>
-                      <option value="PSAR">Parabolic SAR (Trailing Reversal)</option>
-                      <option value="ICHIMOKU">Ichimoku Cloud (Support Breakout)</option>
-                    </select>
-                  </div>
 
-                  {stratType === 'RSI' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">RSI Period (Days)</label>
-                        <input type="number" value={rsiPeriod} onChange={(e) => setRsiPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-green-600 mb-1">Buy When RSI Crosses Below (Oversold)</label>
-                        <input type="number" value={rsiOversold} onChange={(e) => setRsiOversold(Number(e.target.value))} className="w-full p-2 border border-green-200 rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-red-600 mb-1">Sell When RSI Crosses Above (Overbought)</label>
-                        <input type="number" value={rsiOverbought} onChange={(e) => setRsiOverbought(Number(e.target.value))} className="w-full p-2 border border-red-200 rounded text-sm" />
-                      </div>
-                    </div>
-                  )}
-
-                  {stratType === 'SMA' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-green-600 mb-1">Fast SMA Period (e.g. 50)</label>
-                        <input type="number" value={smaFast} onChange={(e) => setSmaFast(Number(e.target.value))} className="w-full p-2 border border-green-200 rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-red-600 mb-1">Slow SMA Period (e.g. 200)</label>
-                        <input type="number" value={smaSlow} onChange={(e) => setSmaSlow(Number(e.target.value))} className="w-full p-2 border border-red-200 rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when Fast SMA crosses above Slow. Sells when Fast crosses below Slow.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'EMA' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-green-600 mb-1">Fast EMA Period (e.g. 20)</label>
-                        <input type="number" value={emaFast} onChange={(e) => setEmaFast(Number(e.target.value))} className="w-full p-2 border border-green-200 rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-red-600 mb-1">Slow EMA Period (e.g. 50)</label>
-                        <input type="number" value={emaSlow} onChange={(e) => setEmaSlow(Number(e.target.value))} className="w-full p-2 border border-red-200 rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when Fast EMA crosses above Slow. Sells when Fast crosses below Slow. Reacts faster than SMA.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'MACD' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Fast EMA Period (e.g. 12)</label>
-                        <input type="number" value={macdFast} onChange={(e) => setMacdFast(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Slow EMA Period (e.g. 26)</label>
-                        <input type="number" value={macdSlow} onChange={(e) => setMacdSlow(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Signal Line Period (e.g. 9)</label>
-                        <input type="number" value={macdSignal} onChange={(e) => setMacdSignal(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when MACD crosses above Signal Line. Sells when MACD crosses below Signal Line.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'BB' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Moving Average Period (e.g. 20)</label>
-                        <input type="number" value={bbPeriod} onChange={(e) => setBbPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Standard Deviation Multiplier (e.g. 2.0)</label>
-                        <input type="number" step="0.1" value={bbMultiplier} onChange={(e) => setBbMultiplier(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys on Momentum Breakout (price closes above Upper Band). Sells on Reversion (price crosses below Middle Band).</p>
-                    </div>
-                  )}
-
-                  {stratType === 'STOCH' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Stochastic Period</label>
-                        <input type="number" value={stochPeriod} onChange={(e) => setStochPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-green-600 mb-1">Oversold Threshold (e.g. 20)</label>
-                        <input type="number" value={stochOversold} onChange={(e) => setStochOversold(Number(e.target.value))} className="w-full p-2 border border-green-200 rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-red-600 mb-1">Overbought Threshold (e.g. 80)</label>
-                        <input type="number" value={stochOverbought} onChange={(e) => setStochOverbought(Number(e.target.value))} className="w-full p-2 border border-red-200 rounded text-sm" />
-                      </div>
-                    </div>
-                  )}
-
-                  {stratType === 'ATR' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">ATR Period (e.g. 14)</label>
-                        <input type="number" value={atrPeriod} onChange={(e) => setAtrPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Trailing Stop Multiplier (e.g. 2.0)</label>
-                        <input type="number" step="0.1" value={atrMultiplier} onChange={(e) => setAtrMultiplier(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">In Custom Builder, ATR alone will just buy immediately and trail the stop. Best used in Compound strategies.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'VWAP' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Rolling VWAP Period (e.g. 20 days)</label>
-                        <input type="number" value={vwapPeriod} onChange={(e) => setVwapPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when Price breaks above VWAP. Sells when Price drops below VWAP.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'OBV' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">OBV Signal Line (SMA Period)</label>
-                        <input type="number" value={obvPeriod} onChange={(e) => setObvPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when On-Balance Volume crosses above its moving average (Volume Breakout).</p>
-                    </div>
-                  )}
-
-                  {stratType === 'ADX' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">ADX Period</label>
-                        <input type="number" value={adxPeriod} onChange={(e) => setAdxPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Strong Trend Threshold (e.g. 25)</label>
-                        <input type="number" value={adxThreshold} onChange={(e) => setAdxThreshold(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when ADX &gt; Threshold AND +DI crosses above -DI. Sells when trend weakens.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'CCI' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">CCI Period</label>
-                        <input type="number" value={cciPeriod} onChange={(e) => setCciPeriod(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-green-600 mb-1">Oversold (e.g. -100)</label>
-                        <input type="number" value={cciOversold} onChange={(e) => setCciOversold(Number(e.target.value))} className="w-full p-2 border border-green-200 rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-red-600 mb-1">Overbought (e.g. 100)</label>
-                        <input type="number" value={cciOverbought} onChange={(e) => setCciOverbought(Number(e.target.value))} className="w-full p-2 border border-red-200 rounded text-sm" />
-                      </div>
-                    </div>
-                  )}
-
-                  {stratType === 'PSAR' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Acceleration Step (e.g. 0.02)</label>
-                        <input type="number" step="0.01" value={psarStep} onChange={(e) => setPsarStep(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Max Acceleration (e.g. 0.2)</label>
-                        <input type="number" step="0.01" value={psarMax} onChange={(e) => setPsarMax(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when price crosses above the PSAR dots. Sells when it crosses below.</p>
-                    </div>
-                  )}
-
-                  {stratType === 'ICHIMOKU' && (
-                    <div className="space-y-3 bg-slate-50 p-3 rounded border border-slate-100">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Tenkan Period (e.g. 9)</label>
-                        <input type="number" value={ichiTenkan} onChange={(e) => setIchiTenkan(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Kijun Period (e.g. 26)</label>
-                        <input type="number" value={ichiKijun} onChange={(e) => setIchiKijun(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Senkou B Period (e.g. 52)</label>
-                        <input type="number" value={ichiSenkou} onChange={(e) => setIchiSenkou(Number(e.target.value))} className="w-full p-2 border rounded text-sm" />
-                      </div>
-                      <p className="text-xs text-slate-500 italic mt-2">Buys when price breaks ABOVE the Kumo Cloud. Sells when it falls BELOW.</p>
-                    </div>
-                  )}
-
-                  <Button type="submit" disabled={customLoading || !symbol} className="w-full bg-slate-900 hover:bg-slate-800 text-white">
-                    {customLoading ? <span className="flex items-center gap-2"><Activity className="h-4 w-4 animate-spin" /> Backtesting Lifetime...</span> : <span className="flex items-center gap-2"><Play className="h-4 w-4" /> Run Custom Backtest</span>}
-                  </Button>
-                </form>
-              </div>
-            </Card>
-          </div>
-
-          <div className="lg:col-span-2">
-            {!customResult ? (
-              <div className="h-64 flex items-center justify-center border-2 border-dashed border-slate-200 rounded-xl text-slate-400 bg-slate-50">
-                <p>Configure your strategy and click Run to see historical performance.</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs text-slate-500 font-medium mb-1">Total Trades</p>
-                    <p className="text-2xl font-bold text-slate-800">{customResult.totalTrades}</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs text-slate-500 font-medium mb-1">Win Rate</p>
-                    <p className={`text-2xl font-bold ${customResult.winRate >= 50 ? 'text-green-600' : 'text-red-500'}`}>{customResult.winRate.toFixed(1)}%</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs text-slate-500 font-medium mb-1">Avg Return / Trade</p>
-                    <p className={`text-2xl font-bold ${customResult.averageReturn >= 0 ? 'text-green-600' : 'text-red-500'}`}>{customResult.averageReturn > 0 ? '+' : ''}{customResult.averageReturn.toFixed(1)}%</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs text-slate-500 font-medium mb-1">Max Drawdown</p>
-                    <p className="text-2xl font-bold text-red-500">{customResult.maxDrawdown ? customResult.maxDrawdown.toFixed(1) : '0.0'}%</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm bg-gradient-to-br from-indigo-50 to-blue-50 border-blue-100">
-                    <p className="text-xs text-blue-600 font-medium mb-1">Lifetime Gross Return</p>
-                    <p className={`text-2xl font-bold ${customResult.totalReturn >= 0 ? 'text-indigo-700' : 'text-red-600'}`}>{customResult.totalReturn > 0 ? '+' : ''}{customResult.totalReturn.toFixed(1)}%</p>
-                  </div>
-                </div>
-
-                <Card>
-                  <CardHeader title="Chronological Trade Log" description="A fully transparent ledger of every simulated entry and exit." />
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-slate-50 text-slate-500 font-medium border-y border-slate-200">
-                        <tr>
-                          <th className="px-4 py-3">Entry Date</th>
-                          <th className="px-4 py-3">Entry Price</th>
-                          <th className="px-4 py-3">Exit Date</th>
-                          <th className="px-4 py-3">Exit Price</th>
-                          <th className="px-4 py-3 text-right">Max DD</th>
-                          <th className="px-4 py-3 text-right">Days Held</th>
-                          <th className="px-4 py-3 text-right">Profit %</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {customResult.trades.length === 0 ? (
-                          <tr><td colSpan={6} className="text-center py-6 text-slate-400">No trades triggered over lifetime.</td></tr>
-                        ) : (
-                          customResult.trades.map((t, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50">
-                              <td className="px-4 py-3">{new Date(t.entryDate).toLocaleDateString()}</td>
-                              <td className="px-4 py-3">₹{t.entryPrice.toFixed(2)}</td>
-                              <td className="px-4 py-3">{new Date(t.exitDate).toLocaleDateString()}</td>
-                              <td className="px-4 py-3">₹{t.exitPrice.toFixed(2)}</td>
-                              <td className="px-4 py-3 text-right text-red-500 font-medium">{t.maxDrawdownPct ? t.maxDrawdownPct.toFixed(2) : '0.00'}%</td>
-                              <td className="px-4 py-3 text-right text-slate-500">{t.holdingPeriodDays}d</td>
-                              <td className={`px-4 py-3 text-right font-semibold ${t.returnPct > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                {t.returnPct > 0 ? '+' : ''}{t.returnPct.toFixed(2)}%
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'optimizer' && (
-        <div className="space-y-6">
-          <Card className="bg-gradient-to-br from-indigo-900 via-slate-900 to-black text-white border-0 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 to-red-500"></div>
-            <div className="p-8 md:p-12 text-center max-w-3xl mx-auto space-y-6">
-              <div className="flex items-center justify-center gap-3">
-                <ShieldCheck className="h-10 w-10 text-green-400" />
-                <Zap className="h-12 w-12 text-yellow-400" />
-              </div>
-              <h2 className="text-3xl font-extrabold tracking-tight">Compound Holy Grail Finder</h2>
-              <div className="inline-flex items-center gap-2 bg-green-500/20 text-green-300 px-4 py-2 rounded-full font-bold text-sm border border-green-500/30">
-                <ShieldCheck className="h-4 w-4" /> Strict 67%+ Win Rate Baseline
-              </div>
-              <p className="text-indigo-200 leading-relaxed text-lg font-medium">
-                The engine will cross-pollinate hundreds of multiple indicators to find maximum confluence on <span className="font-bold text-white bg-indigo-800 px-2 py-1 rounded">{symbol || 'the stock'}</span>. All results below a 67% win rate will be destroyed. This may take 10-15 seconds.
-              </p>
-              <Button 
-                onClick={handleRunOptimizer} 
-                disabled={optLoading || !symbol}
-                className="bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-amber-950 font-black px-8 py-6 text-lg w-full md:w-auto shadow-lg shadow-yellow-500/20 transition-all hover:scale-105"
-              >
-                {optLoading ? <span className="flex items-center gap-3"><Activity className="h-6 w-6 animate-spin" /> Cross-Pollinating Matrices...</span> : "Find 67%+ Win Rate Strategies"}
-              </Button>
-            </div>
-          </Card>
-
-          {optResults && (
-            <Card className="overflow-hidden shadow-lg border-slate-200">
-              <div className="p-5 border-b border-slate-100 bg-white">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h3 className="text-lg font-extrabold text-slate-800">Strategies for {symbol}</h3>
-                    <p className="text-sm text-slate-500 font-medium">
-                      Selected on history up to the split date, ranked by performance on data after it.
-                    </p>
-                  </div>
-                </div>
-
-                {/* The counts, as counts. */}
-                {optMeta && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    {optMeta.strategiesTested} tested · {optMeta.strategiesPassed} traded ·{' '}
-                    {optMeta.strategiesHeldUp} profitable out-of-sample
-                    {optMeta.splitDate && <> · split {new Date(optMeta.splitDate).toLocaleDateString()}</>}
-                  </p>
-                )}
-              </div>
-
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase tracking-wider text-xs">
-                    <tr>
-                      <th className="px-5 py-4 w-12 text-center">Rank</th>
-                      <th className="px-5 py-4">Confluence Components (AND)</th>
-                      <th className="px-5 py-4 text-center" title="Trades in the window the strategy was selected on">Trades <span className="normal-case text-slate-400">(fitted)</span></th>
-                      <th className="px-5 py-4 text-center" title="Win rate on the window the strategy was selected on — fitted, not evidence">Win Rate <span className="normal-case text-slate-400">(fitted)</span></th>
-                      <th className="px-5 py-4 text-center bg-indigo-50/60" title="Win rate on held-back data the strategy was NOT selected on">OOS Win Rate</th>
-                      <th className="px-5 py-4 text-right bg-indigo-50/60" title="Average net return per trade on held-back data, after costs">OOS Avg Return</th>
-                      <th className="px-5 py-4 text-right" title="Worst any single trade went underwater, fitted window">Max DD <span className="normal-case text-slate-400">(fitted)</span></th>
-                      <th className="px-5 py-4 text-right bg-indigo-50/60" title="Worst any single trade went underwater, held-back window">Max DD <span className="normal-case text-slate-400">(OOS)</span></th>
-                      <th className="px-5 py-4 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {optResults.length === 0 ? (
-                      <tr><td colSpan={9} className="text-center py-12 text-slate-400 font-medium">No strategy cleared a 67% win rate on the selection window for this stock.</td></tr>
-                    ) : (
-                      optResults.map((res, idx) => {
-                        const conditions = res.strategy.type === 'COMPOUND' ? res.strategy.conditions : [res.strategy];
-                        
-                        return (
-                          <Fragment key={idx}>
-                            <tr className={`hover:bg-slate-50 transition-colors ${idx === 0 ? 'bg-yellow-50/50' : 'bg-white'}`}>
-                              <td className="px-5 py-4 text-center">
-                                {idx === 0 ? <span className="flex items-center justify-center h-8 w-8 rounded-full bg-yellow-400 text-yellow-900 font-bold mx-auto">1</span> : <span className="font-semibold text-slate-400">#{idx + 1}</span>}
-                              </td>
-                              <td className="px-5 py-4">
-                                {res.strategy.type === 'COMPOUND' && res.strategy.name && (
-                                  <div className="font-bold text-slate-800 text-sm mb-2">{res.strategy.name}</div>
-                                )}
-                                <div className="space-y-1.5">
-                                  {conditions.map((cond, cIdx) => (
-                                    <div key={cIdx} className="flex items-center gap-2">
-                                      <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded border border-slate-200">
-                                        {cond.type}
-                                      </span>
-                                      <span className="text-xs text-slate-600 font-medium">{renderCondition(cond as SingleStrategyParams)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </td>
-                              <td className="px-5 py-4 text-center font-medium text-slate-500">{res.inSample.totalTrades}</td>
-                              <td className="px-5 py-4 text-center">
-                                <span className="inline-flex items-center justify-center bg-slate-100 text-slate-500 font-medium px-2.5 py-1 rounded-full text-xs border border-slate-200">
-                                  {res.inSample.winRate.toFixed(1)}%
-                                </span>
-                              </td>
-                              {/* Held-back window — the only columns here that are evidence. */}
-                              <td className="px-5 py-4 text-center bg-indigo-50/40">
-                                {res.outOfSample.totalTrades >= MIN_OOS_TRADES ? (
-                                  <span className={`inline-flex items-center justify-center font-bold px-2.5 py-1 rounded-full text-xs border ${res.outOfSample.winRate >= 50 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
-                                    {res.outOfSample.winRate.toFixed(1)}%
-                                  </span>
-                                ) : (
-                                  <span
-                                    className="inline-flex items-center justify-center bg-amber-50 text-amber-700 font-medium px-2.5 py-1 rounded-full text-xs border border-amber-200"
-                                    title={`Only ${res.outOfSample.totalTrades} held-back trade(s) — too few to mean anything.`}
-                                  >
-                                    {res.outOfSample.totalTrades === 0 ? 'unvalidated' : `only ${res.outOfSample.totalTrades}`}
-                                  </span>
-                                )}
-                              </td>
-                              <td className={`px-5 py-4 text-right font-bold bg-indigo-50/40 ${res.outOfSample.totalTrades === 0 ? 'text-slate-400' : res.outOfSample.averageReturn > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                {res.outOfSample.totalTrades > 0
-                                  ? `${res.outOfSample.averageReturn > 0 ? '+' : ''}${res.outOfSample.averageReturn.toFixed(2)}%`
-                                  : '—'}
-                                {res.outOfSample.totalTrades > 0 && (
-                                  <span className="block text-[10px] font-normal text-slate-400">{res.outOfSample.totalTrades} trade(s)</span>
-                                )}
-                              </td>
-                              <td className="px-5 py-4 text-right font-medium text-slate-500">
-                                {res.inSample.maxDrawdown ? res.inSample.maxDrawdown.toFixed(1) : '0.0'}%
-                              </td>
-                              <td className={`px-5 py-4 text-right font-bold bg-indigo-50/40 ${res.outOfSample.totalTrades > 0 ? 'text-red-500' : 'text-slate-400'}`}>
-                                {res.outOfSample.totalTrades > 0
-                                  ? `${(res.outOfSample.maxDrawdown ?? 0).toFixed(1)}%`
-                                  : '—'}
-                              </td>
-                              <td className="px-5 py-4 text-center">
-                                <button 
-                                  onClick={() => setExpandedOptCard(expandedOptCard === idx ? null : idx)}
-                                  className={`text-xs font-bold px-3 py-1.5 rounded transition-colors ${expandedOptCard === idx ? 'bg-slate-200 text-slate-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'}`}
-                                >
-                                  {expandedOptCard === idx ? 'Close' : 'View Trades'}
-                                </button>
-                              </td>
-                            </tr>
-                            
-                            {/* Expandable Trade Ledger */}
-                            {expandedOptCard === idx && (
-                              <tr>
-                                <td colSpan={9} className="p-0 border-b border-slate-200">
-                                  <div className="bg-slate-900 border-x-4 border-yellow-400 p-0 max-h-80 overflow-y-auto">
-                                    <table className="w-full text-xs text-left text-slate-300">
-                                      <thead className="bg-slate-800 text-slate-400 font-semibold sticky top-0 uppercase tracking-wider text-[10px]">
-                                        <tr>
-                                          <th className="px-6 py-3">Entry Date</th>
-                                          <th className="px-6 py-3">Exit Date</th>
-                                          <th className="px-6 py-3 text-right">Max DD</th>
-                                          <th className="px-6 py-3 text-right">Days Held</th>
-                                          <th className="px-6 py-3 text-right">Return %</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-slate-800/50">
-                                        {res.stats.trades.map((t, tIdx) => (
-                                          <tr key={tIdx} className="hover:bg-slate-800 transition-colors">
-                                            <td className="px-6 py-3">{new Date(t.entryDate).toLocaleDateString()}</td>
-                                            <td className="px-6 py-3">{new Date(t.exitDate).toLocaleDateString()}</td>
-                                            <td className="px-6 py-3 text-right text-red-400 font-medium">{t.maxDrawdownPct ? t.maxDrawdownPct.toFixed(2) : '0.00'}%</td>
-                                            <td className="px-6 py-3 text-right text-slate-400">{t.holdingPeriodDays}d</td>
-                                            <td className={`px-6 py-3 text-right font-bold ${t.returnPct > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                              {t.returnPct > 0 ? '+' : ''}{t.returnPct.toFixed(2)}%
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-        </div>
-      )}
     </div>
   );
 }

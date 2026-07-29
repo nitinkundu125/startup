@@ -1,55 +1,44 @@
 import { create } from 'zustand';
-import { DynamicBacktestResult } from './dynamic-backtester';
-import { OptimizerResult } from './optimizer';
+import type { OptimizerResult } from './optimizer';
 
+/**
+ * Lab state.
+ *
+ * There is one operation — run every strategy over some stocks — with two ways
+ * to choose the stocks. The separate custom-builder and optimizer views are
+ * gone, and their state with them.
+ */
 interface BacktestState {
-  activeTab: 'custom' | 'optimizer' | 'batch';
-  setActiveTab: (tab: 'custom' | 'optimizer' | 'batch') => void;
+  /** Two ways to scan: a named list, or one stock. */
+  scanMode: 'list' | 'single';
+  setScanMode: (mode: 'list' | 'single') => void;
 
+  /** Target when scanMode is 'single'. */
   symbol: string;
   setSymbol: (symbol: string) => void;
 
-  stratType: 'RSI' | 'SMA' | 'EMA' | 'MACD' | 'BB' | 'STOCH' | 'ATR' | 'VWAP' | 'OBV' | 'ADX' | 'CCI' | 'PSAR' | 'ICHIMOKU';
-  setStratType: (type: any) => void;
-
-  customResult: DynamicBacktestResult | null;
-  setCustomResult: (result: DynamicBacktestResult | null) => void;
-
-  optResults: OptimizerResult[] | null;
-  setOptResults: (results: OptimizerResult[] | null) => void;
-
-  batchResults: any[] | null;
-  setBatchResults: (results: any[] | null) => void;
-  appendBatchResults: (results: any[]) => void;
-  
+  /** Target when scanMode is 'list'. */
   selectedIndex: string;
   setSelectedIndex: (idx: string) => void;
+
+  /** Results stream in per chunk, so they append rather than replace. */
+  results: OptimizerResult[] | null;
+  setResults: (results: OptimizerResult[] | null) => void;
+  appendResults: (results: OptimizerResult[]) => void;
 }
 
 export const useBacktestStore = create<BacktestState>((set) => ({
-  activeTab: 'batch',
-  setActiveTab: (activeTab) => set({ activeTab }),
+  scanMode: 'list',
+  setScanMode: (scanMode) => set({ scanMode }),
 
   symbol: '',
   setSymbol: (symbol) => set({ symbol }),
 
-  stratType: 'RSI',
-  setStratType: (stratType) => set({ stratType }),
-
-  customResult: null,
-  setCustomResult: (customResult) => set({ customResult }),
-
-  optResults: null,
-  setOptResults: (optResults) => set({ optResults }),
-
-  batchResults: null,
-  setBatchResults: (batchResults) => set({ batchResults }),
-  appendBatchResults: (results) => set((state) => ({ 
-    batchResults: [...(state.batchResults || []), ...results] 
-  })),
-
-  // Watchlist is the default target now that it shares one dropdown with the
-  // indices — scanning what you actually follow is the common case.
-  selectedIndex: 'watchlist',
+  selectedIndex: 'nifty50',
   setSelectedIndex: (selectedIndex) => set({ selectedIndex }),
+
+  results: null,
+  setResults: (results) => set({ results }),
+  appendResults: (rows) =>
+    set((state) => ({ results: [...(state.results ?? []), ...rows] })),
 }));

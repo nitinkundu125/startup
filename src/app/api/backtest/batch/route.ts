@@ -54,16 +54,6 @@ import {
 const MAX_SYMBOLS_PER_BATCH = 50;
 
 /**
- * Default strategies kept per symbol, overridable per scan.
- *
- * With 277 strategies, ~262 trade on a typical stock, so a Nifty 500 scan is
- * ~130,000 rows if nothing is capped. Ten is a sensible starting point rather
- * than a rule — set it to 0 for everything. The browser is protected by the
- * client's own render limit, which is the right layer for that.
- */
-const DEFAULT_RESULTS_PER_SYMBOL = 10;
-
-/**
  * Ranking, shared by the per-symbol cap and the final ordering.
  *
  * A held-back sample too small to mean anything sorts below every properly
@@ -85,7 +75,7 @@ export async function POST(request: Request) {
 
   try {
     const { symbols, minWinRate, minTrades, maxDrawdown,
-            oosMinWinRate, oosMinTrades, oosMaxDrawdown, topPerSymbol } = await request.json();
+            oosMinWinRate, oosMinTrades, oosMaxDrawdown } = await request.json();
 
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
       return NextResponse.json({ error: 'No symbols provided' }, { status: 400 });
@@ -117,8 +107,6 @@ export async function POST(request: Request) {
     const oosWinFloor = clamp(oosMinWinRate, 0, 100, 0);
     const oosTradesFloor = clamp(oosMinTrades, 0, 10_000, 0);
     const oosDrawdownCeiling = clamp(oosMaxDrawdown, 0, 100, 0);
-    // 0 means keep every strategy that cleared the filters for this stock.
-    const perSymbolCap = clamp(topPerSymbol, 0, 1000, DEFAULT_RESULTS_PER_SYMBOL);
 
     const targetSymbols = symbols.slice(0, MAX_SYMBOLS_PER_BATCH);
     const truncated = symbols.length - targetSymbols.length;
@@ -130,7 +118,7 @@ export async function POST(request: Request) {
       const chunk = targetSymbols.slice(i, i + CHUNK_SIZE);
       // Filters are part of the key: results are filtered BEFORE caching, so an
       // unfiltered scan must not be served a cached filtered set, or vice versa.
-      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}:w${winRateFloor}t${tradesFloor}d${drawdownCeiling}:ow${oosWinFloor}ot${oosTradesFloor}od${oosDrawdownCeiling}n${perSymbolCap}`;
+      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}:w${winRateFloor}t${tradesFloor}d${drawdownCeiling}:ow${oosWinFloor}ot${oosTradesFloor}od${oosDrawdownCeiling}`;
 
       const chunkPromises = chunk.map(async (symbol) => {
         try {
@@ -202,13 +190,12 @@ export async function POST(request: Request) {
             });
           }
 
-          // Keep only the best few for this symbol. `matchedTotal` rides along on
-          // the first row so the UI can say how many were considered — a capped
-          // list that looks complete is worse than no cap at all.
-          const matchedTotal = symbolResults.length;
+          // Everything that cleared the filters is returned; the user filters
+          // further themselves. The browser is protected a layer lower, where
+          // the client paints a bounded number of rows.
           symbolResults.sort(rankByOutOfSample);
-          const capped = perSymbolCap > 0 ? symbolResults.slice(0, perSymbolCap) : symbolResults;
-          if (capped.length > 0) capped[0].matchedTotal = matchedTotal;
+          const capped = symbolResults;
+          if (capped.length > 0) capped[0].matchedTotal = symbolResults.length;
 
           // Cache the capped set — it is what gets served, so caching the full
           // list would only make same-day rescans slower for no benefit.
@@ -247,13 +234,11 @@ export async function POST(request: Request) {
       // How many strategy/symbol pairs actually traded, vs how many are being
       // returned. Without this the cap reads as "these are all the matches".
       matchedTotal,
-      returnedPerSymbol: perSymbolCap,
       // Echo the filters back so the UI can state what was applied rather than
       // presenting a filtered list as the full picture.
       filters: {
         minWinRate: winRateFloor, minTrades: tradesFloor, maxDrawdown: drawdownCeiling,
         oosMinWinRate: oosWinFloor, oosMinTrades: oosTradesFloor, oosMaxDrawdown: oosDrawdownCeiling,
-        topPerSymbol: perSymbolCap,
       },
       // Surfaced rather than silently dropped — a truncated scan should not read
       // as full coverage.

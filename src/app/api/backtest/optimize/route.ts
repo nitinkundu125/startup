@@ -8,12 +8,12 @@ export async function POST(request: Request) {
 
   try {
     const { symbol, minWinRate, minTrades, maxDrawdown,
-            oosMinWinRate, oosMinTrades, oosMaxDrawdown, topPerSymbol } = await request.json();
+            oosMinWinRate, oosMinTrades, oosMaxDrawdown } = await request.json();
     if (!symbol) return NextResponse.json({ error: 'Missing symbol' }, { status: 400 });
 
     // Spread the report so `results` stays the array the client expects, with
     // the selection counts (tested / passed / held up) alongside it.
-    const report = await runOptimizer(symbol, { minWinRate, minTrades, maxDrawdown, oosMinWinRate, oosMinTrades, oosMaxDrawdown, topPerSymbol });
+    const report = await runOptimizer(symbol, { minWinRate, minTrades, maxDrawdown, oosMinWinRate, oosMinTrades, oosMaxDrawdown });
 
     return NextResponse.json({ success: true, ...report });
   } catch (error: any) {
