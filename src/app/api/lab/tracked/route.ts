@@ -6,17 +6,12 @@ import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { exitRule } from '@/lib/describe-strategy';
 
 /**
- * One list of everything the user is tracking.
+ * The user's open positions, with live P&L and exit state.
  *
- * Pinning and recording a buy were two separate panels for what is really one
- * idea — "track this strategy on this stock" — in two states:
- *
- *   WATCHING  no position. Waiting for a BUY signal.
- *   HOLDING   position open. Waiting for a SELL signal.
- *
- * Buying does not create a second thing to manage, it moves a row from one
- * state to the other. Presenting them as separate lists meant anything bought
- * appeared twice, and neither list said whether you actually owned it.
+ * Watching setups you do not own was removed: a signal only matters once money
+ * is behind it, and buy opportunities come from scanning rather than a standing
+ * watchlist. So this list answers exactly one question — what do I hold, and
+ * should I sell any of it?
  */
 
 function findStrategy(name: string) {
@@ -42,99 +37,69 @@ export async function GET() {
   const user = await requireValidUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [pinned, positions] = await Promise.all([
-    prisma.pinnedStrategy.findMany({ where: { userId: user.id }, orderBy: { pinnedAt: 'desc' } }),
-    prisma.labPosition.findMany({ where: { userId: user.id }, orderBy: { entryDate: 'desc' } }),
-  ]);
+  const positions = await prisma.labPosition.findMany({
+    where: { userId: user.id },
+    orderBy: { entryDate: 'desc' },
+  });
 
-  const openByKey = new Map(
-    positions.filter((p) => p.status === 'OPEN').map((p) => [`${p.symbol}|${p.strategyName}`, p])
-  );
+  const open = positions.filter((p) => p.status === 'OPEN');
 
-  // A position can outlive its pin (unpinned by hand, or pinned before this
-  // existed), and it must never vanish from the list just because of that —
-  // the user still owns the stock.
-  const rowKeys = new Set(pinned.map((p) => `${p.symbol}|${p.strategyName}`));
-  for (const key of openByKey.keys()) rowKeys.add(key);
-
-  const symbols = [...new Set([...rowKeys].map((k) => k.split('|')[0]))];
   const prices = new Map<string, number>();
   await Promise.all(
-    symbols.map(async (s) => {
+    [...new Set(open.map((p) => p.symbol))].map(async (s) => {
       const ltp = await fetchLtpForSymbol(s.replace('.NS', ''));
       if (ltp != null) prices.set(s, ltp);
     })
   );
 
-  const pinnedByKey = new Map(pinned.map((p) => [`${p.symbol}|${p.strategyName}`, p]));
-
-  const rows = [...rowKeys].map((key) => {
-    const [symbol, strategyName] = key.split('|');
-    const pin = pinnedByKey.get(key);
-    const pos = openByKey.get(key);
-    const strat = findStrategy(strategyName);
-    const ltp = prices.get(symbol) ?? null;
-    const stats = parseStats(pin?.statsJson ?? null);
-
-    const invested = pos ? pos.entryPrice * pos.quantity : null;
-    const pnl = pos && ltp != null ? (ltp - pos.entryPrice) * pos.quantity : null;
+  const rows = open.map((p) => {
+    const strat = findStrategy(p.strategyName);
+    const ltp = prices.get(p.symbol) ?? null;
+    const stats = parseStats(p.statsJson);
+    const invested = p.entryPrice * p.quantity;
+    const pnl = ltp != null ? (ltp - p.entryPrice) * p.quantity : null;
 
     return {
-      key,
-      symbol,
-      strategyName,
-      state: pos ? ('HOLDING' as const) : ('WATCHING' as const),
-      pinned: Boolean(pin),
+      id: p.id,
+      symbol: p.symbol,
+      strategyName: p.strategyName,
       currentPrice: ltp,
-
-      signal: pin?.lastSignal ?? null,
-      signalDate: pin?.signalDate ?? null,
-      isNewSignal: pin?.isNewSignal ?? false,
-      lastUpdated: pin?.lastUpdated ?? null,
-
+      entryPrice: p.entryPrice,
+      quantity: p.quantity,
+      entryDate: p.entryDate,
+      stopLossPrice: p.stopLossPrice,
+      invested,
+      pnl,
+      pnlPct: pnl != null ? (pnl / invested) * 100 : null,
+      stopBreached: p.stopLossPrice != null && ltp != null && ltp <= p.stopLossPrice,
+      signal: p.lastSignal,
+      lastChecked: p.lastChecked,
       oosWinRate: stats?.oosWinRate ?? null,
       oosTotalTrades: stats?.oosTotalTrades ?? null,
       exitRule: strat ? exitRule(strat) : null,
-
-      position: pos
-        ? {
-            id: pos.id,
-            entryPrice: pos.entryPrice,
-            quantity: pos.quantity,
-            entryDate: pos.entryDate,
-            stopLossPrice: pos.stopLossPrice,
-            invested,
-            pnl,
-            pnlPct: pnl != null && invested ? (pnl / invested) * 100 : null,
-            stopBreached: pos.stopLossPrice != null && ltp != null && ltp <= pos.stopLossPrice,
-          }
-        : null,
+      // Never checked yet means the cron has not run since this was opened —
+      // "no sell signal" and "nobody has looked" must not read the same.
+      neverChecked: p.lastChecked == null,
     };
   });
 
-  // Anything needing action first: a fired signal, then holdings, then watches.
-  const rank = (r: (typeof rows)[number]) => {
-    if (r.state === 'HOLDING' && (r.signal === 'NEW_SELL' || r.position?.stopBreached)) return 0;
-    if (r.state === 'WATCHING' && r.signal === 'NEW_BUY') return 1;
-    if (r.state === 'HOLDING') return 2;
-    return 3;
-  };
-  rows.sort((a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol));
+  // Anything demanding action first.
+  rows.sort((a, b) => {
+    const rank = (r: typeof a) => (r.stopBreached ? 0 : r.signal === 'NEW_SELL' ? 1 : 2);
+    return rank(a) - rank(b) || a.symbol.localeCompare(b.symbol);
+  });
 
-  const holding = rows.filter((r) => r.state === 'HOLDING');
   const closed = positions.filter((p) => p.status === 'CLOSED');
 
   return NextResponse.json({
     success: true,
     rows,
     summary: {
-      watching: rows.filter((r) => r.state === 'WATCHING').length,
-      holding: holding.length,
-      invested: holding.reduce((n, r) => n + (r.position?.invested ?? 0), 0),
-      unrealisedPnl: holding.reduce((n, r) => n + (r.position?.pnl ?? 0), 0),
-      // Holdings whose quote failed are excluded rather than counted at zero.
-      pricedCount: holding.filter((r) => r.currentPrice != null).length,
-      actionable: rows.filter((r) => rank(r) <= 1).length,
+      holding: rows.length,
+      invested: rows.reduce((n, r) => n + r.invested, 0),
+      unrealisedPnl: rows.reduce((n, r) => n + (r.pnl ?? 0), 0),
+      pricedCount: rows.filter((r) => r.currentPrice != null).length,
+      needsAction: rows.filter((r) => r.stopBreached || r.signal === 'NEW_SELL').length,
     },
     closed: closed.map((p) => ({
       id: p.id,

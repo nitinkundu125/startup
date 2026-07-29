@@ -104,6 +104,23 @@ model LabPosition {
   /** OPEN | CLOSED */
   status        String    @default("OPEN")
   notes         String?
+
+  /**
+   * Signal state, tracked per position rather than per pinned strategy.
+   *
+   * Watching setups you do not own was dropped: a signal only matters once
+   * there is money behind it, and BUY opportunities come from scanning, not
+   * from a standing list. So the cron walks OPEN positions and answers one
+   * question — is it time to sell this?
+   */
+  lastSignal         String?
+  signalDate         DateTime?
+  isNewSignal        Boolean   @default(false)
+  /** Last signal actually sent, so a persistent SELL is not re-alerted daily. */
+  lastNotifiedSignal String?
+  statsJson          String?
+  lastChecked        DateTime?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

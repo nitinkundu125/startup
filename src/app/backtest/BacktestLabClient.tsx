@@ -3,7 +3,7 @@
 import { useState, Fragment, useMemo, useEffect } from 'react';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, Pin, Star, X } from 'lucide-react';
+import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, X } from 'lucide-react';
 import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
@@ -110,8 +110,6 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
 
   // Batch Expand State
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
-  const [pinnedStrategies, setPinnedStrategies] = useState<any[]>([]);
-  const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [expandedTrades, setExpandedTrades] = useState<Record<number, any[]>>({});
   const [loadingTrades, setLoadingTrades] = useState<Record<number, boolean>>({});
 
@@ -189,11 +187,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
       });
       const data = await res.json();
       if (!data.success) { setBuyError(data.error ?? 'Could not record'); return; }
-      // Pin it too, so the exit signal is actually tracked. Buying without
-      // pinning would mean never being told when to sell.
-      if (!pinnedStrategies.some((p) => p.symbol === buyRow.symbol && p.strategy === buyRow.strategyName)) {
-        await handleTogglePin(buyRow.symbol, buyRow.strategyName);
-      }
+      // No pinning step any more: the open position IS the tracked thing, and
+      // the exit check walks open positions directly.
       setBuyRow(null);
       setPositionsToken((n) => n + 1);
     } catch (e) {
@@ -243,15 +238,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
    * of thousands of pairs. The server already caps per symbol; this caps what
    * gets painted.
    */
-  const filteredResults = useMemo(
-    () =>
-      displayedResults.filter(
-        (res: any) =>
-          !showPinnedOnly ||
-          pinnedStrategies.some((p) => p.symbol === res.symbol && p.strategy === res.strategyName)
-      ),
-    [displayedResults, showPinnedOnly, pinnedStrategies]
-  );
+  const filteredResults = displayedResults;
   const visibleResults = useMemo(
     () => filteredResults.slice(0, rowLimit),
     [filteredResults, rowLimit]
@@ -275,108 +262,13 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     }
   }
 
-  useEffect(() => {
-    const fetchWatchlist = async () => {
-      try {
-        const res = await fetch('/api/watchlist');
-        const data = await res.json();
-        setWatchlist(data.watchlist || []);
-      } catch (err) {
-        console.error('Failed to load watchlist', err);
-      }
-    };
-    fetchWatchlist();
-    
-    // Load pinned strategies from backend
-    const fetchPinned = async () => {
-      try {
-        const res = await fetch('/api/backtest/pinned');
-        const data = await res.json();
-        if (data.success && data.pinned) {
-          setPinnedStrategies(data.pinned.map((p: any) => ({
-            id: p.id,
-            symbol: p.symbol,
-            strategy: p.strategyName,
-            lastSignal: p.lastSignal,
-            signalDate: p.signalDate,
-            isNewSignal: p.isNewSignal,
-            statsJson: p.statsJson,
-            lastUpdated: p.lastUpdated
-          })));
-        }
-      } catch (err) {
-        console.error('Failed to load pinned strategies', err);
-      }
-    };
-    fetchPinned();
-  }, []);
+  // Pinned strategies removed — the open position is the tracked thing now.
+  
 
-  const handleTogglePin = async (symbol: string, strategy: string) => {
-    // Optimistic UI update
-    setPinnedStrategies(prev => {
-      const isPinned = prev.some(p => p.symbol === symbol && p.strategy === strategy);
-      if (isPinned) {
-        return prev.filter(p => !(p.symbol === symbol && p.strategy === strategy));
-      } else {
-        return [...prev, { symbol, strategy }];
-      }
-    });
-
-    // Backend sync
-    try {
-      await fetch('/api/backtest/pinned', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategy })
-      });
-    } catch (err) {
-      console.error('Failed to sync pinned strategy', err);
-    }
-  };
 
   const [runningCron, setRunningCron] = useState(false);
 
-  const runDailyScript = async () => {
-    setRunningCron(true);
-    try {
-      const res = await fetch('/api/cron/run-pinned', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        // Refresh pinned strategies to get new signals
-        const res2 = await fetch('/api/backtest/pinned');
-        const data2 = await res2.json();
-        if (data2.success && data2.pinned) {
-          setPinnedStrategies(data2.pinned.map((p: any) => ({
-            id: p.id,
-            symbol: p.symbol,
-            strategy: p.strategyName,
-            lastSignal: p.lastSignal,
-            signalDate: p.signalDate,
-            isNewSignal: p.isNewSignal,
-            statsJson: p.statsJson,
-            lastUpdated: p.lastUpdated
-          })));
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setRunningCron(false);
-    }
-  };
 
-  const ackSignal = async (id: string) => {
-    setPinnedStrategies(prev => prev.map(p => p.id === id ? { ...p, isNewSignal: false } : p));
-    try {
-      await fetch('/api/backtest/pinned/ack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   async function handleAddWatchlist() {
     if (!newWatchlistSymbol) return;
@@ -496,7 +388,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   async function handleScanClick() {
     if (selectedIndex === 'watchlist') return handleRunBatch(watchlist.map((w) => w.symbol));
     if (selectedIndex === 'pinned') {
-      return handleRunBatch(Array.from(new Set(pinnedStrategies.map((p) => p.symbol))));
+      const held = await fetch('/api/lab/tracked').then(r => r.json()).catch(() => null);
+      const symbols: string[] = held?.success ? [...new Set(held.rows.map((r: any) => r.symbol))] as string[] : [];
+      return handleRunBatch(symbols);
     }
 
     const builtin: Record<string, string[]> = {
@@ -716,16 +610,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
         </div>
       )}
 
-      <LabTracked
-        refreshToken={positionsToken}
-        onBuy={(symbol, strategyName, price) =>
-          openBuy({ symbol, strategyName, lastClose: price ?? undefined })
-        }
-      />
+      <LabTracked refreshToken={positionsToken} />
 
-      {/* The pinned panel is gone: pinning and buying are one list now
-          (LabTracked), where the same row shows WATCHING or HOLDING. Two panels
-          meant anything bought appeared in both and neither said which. */}
+      {/* Pinning is gone entirely. An open position is the only thing tracked,
+          and the exit check walks open positions directly. */}
 
       {activeTab !== 'batch' && (
         <Card className="bg-slate-50 border-slate-200">
@@ -809,7 +697,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   disabled={batchLoading}
                 >
                   <option value="watchlist">My Watchlist ({watchlist.length})</option>
-                  <option value="pinned">Pinned Symbols</option>
+                  <option value="pinned">My Holdings</option>
                   <option value="nifty50">Nifty 50</option>
                   <option value="nifty100">Nifty 100</option>
                   <option value="midcap150">Midcap 150</option>
@@ -918,16 +806,6 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                     </>
                   )}
                 </p>
-
-                <label className="flex items-center gap-2 cursor-pointer mt-1">
-                  <input 
-                    type="checkbox" 
-                    checked={showPinnedOnly}
-                    onChange={(e) => setShowPinnedOnly(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
-                  />
-                  <span className="text-sm font-medium text-slate-700">Show Pinned Strategies Only</span>
-                </label>
               </div>
             </div>
           </div>
@@ -1007,7 +885,6 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="px-5 py-3 w-10"></th>
                       <th className="px-5 py-3">Rank</th>
                       <th className="px-5 py-3">Symbol</th>
                       <th className="px-5 py-3">Strategy Name</th>
@@ -1040,19 +917,9 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {visibleResults.map((res, idx) => {
-                      const isPinned = pinnedStrategies.some(p => p.symbol === res.symbol && p.strategy === res.strategyName);
                       return (
                       <Fragment key={`${res.symbol}-${res.strategyName}-${idx}`}>
                         <tr className="hover:bg-slate-50 transition-colors group">
-                          <td className="px-5 py-4">
-                            <button 
-                              onClick={() => handleTogglePin(res.symbol, res.strategyName)}
-                              className={`p-1 rounded hover:bg-slate-200 transition-colors ${isPinned ? 'text-amber-500' : 'text-slate-300 group-hover:text-slate-400'}`}
-                              title={isPinned ? "Unpin strategy" : "Pin this strategy"}
-                            >
-                              <Pin className={`h-4 w-4 ${isPinned ? 'fill-current' : ''}`} />
-                            </button>
-                          </td>
                           <td className="px-5 py-4 font-bold text-slate-400">#{idx + 1}</td>
                           <td className="px-5 py-4 font-bold text-slate-800">{res.symbol}</td>
                           <td className="px-5 py-4 font-medium text-blue-600">{res.strategyName}</td>
@@ -1134,7 +1001,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                         </tr>
                         {expandedRow === idx && (
                           <tr className="bg-slate-50 border-b border-slate-200">
-                            <td colSpan={13} className="px-5 py-6">
+                            <td colSpan={12} className="px-5 py-6">
                               <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
                                 <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                                   <Settings2 className="h-4 w-4 text-slate-500" /> 
