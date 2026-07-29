@@ -40,11 +40,63 @@ export function closeOnOrBefore(series: DailyClose[], onOrBefore: Date): number 
   return price > 0 && Number.isFinite(price) ? price : null;
 }
 
-export async function fetchYahooDailyCloses(
+/**
+ * Why a fetch produced no bars.
+ *
+ * `no-data` means Yahoo answered and the symbol genuinely has no usable history.
+ * `unavailable` means we never got an answer — throttled, timed out, or a server
+ * error. Collapsing the two into an empty array is what let a Nifty 500 scan
+ * cover 122 stocks and report success: once Yahoo started refusing, every
+ * remaining symbol looked exactly like a stock with no price history.
+ */
+export type FetchOutcome = 'ok' | 'no-data' | 'unavailable';
+
+export type YahooFetchResult = { rows: DailyClose[]; outcome: FetchOutcome };
+
+/** Statuses worth trying again. 429 is the throttle; 5xx is Yahoo wobbling. */
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Same fetch, but it says why it failed.
+ *
+ * Retries throttles and transient server errors with backoff, honouring
+ * Retry-After when Yahoo sends one. Callers that only want the bars can keep
+ * using fetchYahooDailyCloses.
+ */
+export async function fetchYahooDaily(
   yahooSymbol: string,
   start: Date,
   end: Date = new Date()
-): Promise<DailyClose[]> {
+): Promise<YahooFetchResult> {
+  let lastRetryable = false;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const res = await fetchYahooOnce(yahooSymbol, start, end);
+    if (res.outcome !== 'unavailable') return res;
+
+    lastRetryable = res.retryable;
+    if (!res.retryable || attempt === MAX_ATTEMPTS) break;
+
+    // Backoff with jitter so ten symbols throttled together do not all come
+    // back at the same instant and get throttled again as a group.
+    const base = res.retryAfterMs ?? 700 * 2 ** (attempt - 1);
+    await sleep(base + Math.floor(Math.random() * 300));
+  }
+
+  void lastRetryable;
+  return { rows: [], outcome: 'unavailable' };
+}
+
+type OnceResult = YahooFetchResult & { retryable: boolean; retryAfterMs?: number };
+
+async function fetchYahooOnce(
+  yahooSymbol: string,
+  start: Date,
+  end: Date
+): Promise<OnceResult> {
   const period1 = Math.floor(start.getTime() / 1000) - 86400 * 7;
   const period2 = Math.floor(end.getTime() / 1000) + 86400;
 
@@ -62,8 +114,26 @@ export async function fetchYahooDailyCloses(
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    
-    if (!res.ok) return [];
+
+    if (!res.ok) {
+      // 404/400 is Yahoo answering: the symbol does not exist there. Index
+      // constituent lists carry renamed and delisted tickers, and calling those
+      // "could not be fetched" would blame the rate limit for a dead symbol.
+      if (res.status === 404 || res.status === 400) {
+        return { rows: [], outcome: 'no-data', retryable: false };
+      }
+      // Retry-After may be seconds or an HTTP date; only the numeric form is
+      // worth acting on, and only when it is short enough to wait out.
+      const header = Number(res.headers.get('retry-after'));
+      const retryAfterMs =
+        Number.isFinite(header) && header > 0 && header <= 30 ? header * 1000 : undefined;
+      return {
+        rows: [],
+        outcome: 'unavailable',
+        retryable: RETRYABLE.has(res.status),
+        retryAfterMs,
+      };
+    }
 
     const json = (await res.json()) as {
       chart?: {
@@ -112,10 +182,26 @@ export async function fetchYahooDailyCloses(
     }
 
     out.sort((a, b) => a.date.getTime() - b.date.getTime());
-    return out;
+    // Yahoo answered. An empty list here means the symbol really has nothing,
+    // which is a different fact from never having reached Yahoo at all.
+    return { rows: out, outcome: out.length ? 'ok' : 'no-data', retryable: false };
   } catch {
-    return [];
+    // Aborted by the 10s timeout, or the connection failed. Both are worth
+    // another try — neither tells us anything about the symbol.
+    clearTimeout(timeoutId);
+    return { rows: [], outcome: 'unavailable', retryable: true };
   }
+}
+
+/**
+ * Bars only. Unchanged behaviour for the callers that cannot act on the reason.
+ */
+export async function fetchYahooDailyCloses(
+  yahooSymbol: string,
+  start: Date,
+  end: Date = new Date()
+): Promise<DailyClose[]> {
+  return (await fetchYahooDaily(yahooSymbol, start, end)).rows;
 }
 
 export type PriceSeries = {

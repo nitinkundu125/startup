@@ -81,6 +81,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const [universeSource, setUniverseSource] = useState<string | null>(null);
   /** How many strategy/symbol pairs traded, before the server's per-symbol cap. */
   const [matchedTotal, setMatchedTotal] = useState(0);
+  /** Per-symbol outcomes, summed across chunks. See the amber note under the results. */
+  const [coverage, setCoverage] = useState({
+    requested: 0, scanned: 0, cached: 0, insufficient: 0, unavailable: 0,
+  });
   /** Rows actually rendered. The table is not virtualised, so this is a hard guard. */
   const [rowLimit, setRowLimit] = useState(200);
   /** Six result floors, fitted and held-back. 0 disables each. */
@@ -291,6 +295,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
     setScanTotalCount(symbolsToScan.length);
     setScanEta(null);
     setMatchedTotal(0);
+    setCoverage({ requested: 0, scanned: 0, cached: 0, insufficient: 0, unavailable: 0 });
     setRowLimit(200);
     
     const startTime = Date.now();
@@ -315,10 +320,33 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
             if (typeof data.matchedTotal === 'number') {
               setMatchedTotal((n) => n + data.matchedTotal);
             }
+            if (data.coverage) {
+              setCoverage((c) => ({
+                requested: c.requested + data.coverage.requested,
+                scanned: c.scanned + data.coverage.scanned,
+                cached: c.cached + data.coverage.cached,
+                insufficient: c.insufficient + data.coverage.insufficient,
+                unavailable: c.unavailable + data.coverage.unavailable,
+              }));
+            }
+          } else {
+            // A chunk the server rejected is still ten stocks that were not
+            // scanned; it must not disappear from the tally.
+            setCoverage((c) => ({
+              ...c,
+              requested: c.requested + chunk.length,
+              unavailable: c.unavailable + chunk.length,
+            }));
           }
         } catch (chunkError) {
-          console.error("Chunk failed to load:", chunk, chunkError);
-          // Silently continue to next chunk
+          console.error('Chunk failed to load:', chunk, chunkError);
+          // Continue to the next chunk, but count what was missed rather than
+          // letting the progress bar imply these stocks were covered.
+          setCoverage((c) => ({
+            ...c,
+            requested: c.requested + chunk.length,
+            unavailable: c.unavailable + chunk.length,
+          }));
         }
         
         processed += chunk.length;
@@ -685,7 +713,20 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 </span>
                 {matchedTotal > filteredResults.length && (
                   <span className="text-slate-500">
-                    · best 10 per stock, out of {matchedTotal.toLocaleString()} strategy/stock pairs that traded
+                    · out of {matchedTotal.toLocaleString()} strategy/stock pairs that traded
+                  </span>
+                )}
+                {coverage.unavailable > 0 && (
+                  // The scan did not cover what it was asked to. Saying so is the
+                  // whole point: a Nifty 500 scan once stopped at 122 stocks and
+                  // reported success, because a throttled fetch and a stock with
+                  // no history both just produced no rows.
+                  <span className="w-full text-amber-700">
+                    {coverage.unavailable.toLocaleString()} of {coverage.requested.toLocaleString()} stocks
+                    could not be fetched (the data provider rate-limits large scans) — they are
+                    missing from these results. Run the scan again with the same filters to fill
+                    them in; the {coverage.scanned + coverage.cached} already done are cached and
+                    will not be re-fetched.
                   </span>
                 )}
                 {filteredResults.length > visibleResults.length && (

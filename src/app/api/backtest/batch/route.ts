@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireValidUser } from '@/lib/auth';
-import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
+import { fetchYahooDaily, toPriceSeries } from '@/lib/index-history';
 import { runSplitBacktest } from '@/lib/dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { prisma } from '@/lib/prisma';
@@ -23,6 +23,33 @@ import {
 } from '@/lib/backtest-constants';
 
 const MAX_SYMBOLS_PER_BATCH = 50;
+
+/** Simultaneous Yahoo requests. See the note where it is used. */
+const FETCH_CONCURRENCY = 3;
+
+/**
+ * Run `fn` over `items`, at most `limit` at a time, preserving input order.
+ *
+ * Promise.all over the whole chunk was the old behaviour; the only thing that
+ * changes here is how many are in flight at once.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
 
 /**
  * Ranking, shared by the per-symbol cap and the final ordering.
@@ -83,6 +110,13 @@ export async function POST(request: Request) {
     const truncated = symbols.length - targetSymbols.length;
     const batchResults: BatchOptimizerResult[] = [];
 
+    /**
+     * What actually happened to each symbol. Previously a symbol that failed and
+     * a symbol with no history both just vanished from the results, so a scan
+     * stopped by Yahoo's throttle was indistinguishable from a complete one.
+     */
+    const coverage = { scanned: 0, cached: 0, insufficient: 0, unavailable: 0 };
+
     // Chunk size of 5 to avoid Yahoo rate limits
     const CHUNK_SIZE = 5;
     for (let i = 0; i < targetSymbols.length; i += CHUNK_SIZE) {
@@ -91,7 +125,7 @@ export async function POST(request: Request) {
       // unfiltered scan must not be served a cached filtered set, or vice versa.
       const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}:w${winRateFloor}t${tradesFloor}d${drawdownCeiling}:ow${oosWinFloor}ot${oosTradesFloor}od${oosDrawdownCeiling}`;
 
-      const chunkPromises = chunk.map(async (symbol) => {
+      const scanOne = async (symbol: string): Promise<BatchOptimizerResult[] | null> => {
         try {
           // Check cache first
           const cached = await prisma.scanCache.findUnique({
@@ -99,12 +133,22 @@ export async function POST(request: Request) {
           });
 
           if (cached) {
+            coverage.cached++;
             return JSON.parse(cached.results) as BatchOptimizerResult[];
           }
 
           const period1 = backtestStartDate();
-          const rows = await fetchYahooDailyCloses(symbol, period1);
-          if (rows.length < 100) return null; // Not enough data
+          const { rows, outcome } = await fetchYahooDaily(symbol, period1);
+          if (outcome === 'unavailable') {
+            // Never reached Yahoo. Counted separately so a throttled scan cannot
+            // masquerade as a completed one.
+            coverage.unavailable++;
+            return null;
+          }
+          if (rows.length < 100) {
+            coverage.insufficient++;
+            return null;
+          }
 
           const { closes, highs, lows, opens, volumes, dates } = toPriceSeries(rows);
 
@@ -180,14 +224,20 @@ export async function POST(request: Request) {
             }
           });
 
+          coverage.scanned++;
           return capped;
         } catch (e) {
           console.error(`Failed to process ${symbol}:`, e);
+          coverage.unavailable++;
           return null;
         }
-      });
+      };
 
-      const results = await Promise.all(chunkPromises);
+      // Three at a time, not ten. Ten concurrent requests per chunk, chunk after
+      // chunk, is what tripped Yahoo's throttle roughly 120 symbols into a Nifty
+      // 500 scan. A slower scan that finishes beats a fast one that quietly
+      // covers a quarter of the universe.
+      const results = await mapWithConcurrency(chunk, FETCH_CONCURRENCY, scanOne);
       for (const res of results) {
         if (res) batchResults.push(...res);
       }
@@ -202,6 +252,10 @@ export async function POST(request: Request) {
       results: batchResults,
       strategiesPerSymbol: MASTER_STRATEGY_LIBRARY.length,
       symbolsScanned: targetSymbols.length,
+      // Requested vs actually covered. `unavailable` is the number the UI has to
+      // show: those symbols were never scanned, and without saying so a partial
+      // scan reads as a finished one.
+      coverage: { requested: targetSymbols.length, ...coverage },
       // How many strategy/symbol pairs actually traded, vs how many are being
       // returned. Without this the cap reads as "these are all the matches".
       matchedTotal,
