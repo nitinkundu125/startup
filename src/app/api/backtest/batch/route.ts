@@ -87,7 +87,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { symbols, minWinRate, minTrades, maxDrawdown } = await request.json();
+    const { symbols, minWinRate, minTrades, maxDrawdown,
+            oosMinWinRate, oosMinTrades, oosMaxDrawdown } = await request.json();
 
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
       return NextResponse.json({ error: 'No symbols provided' }, { status: 400 });
@@ -110,6 +111,16 @@ export async function POST(request: Request) {
      */
     const drawdownCeiling = clamp(maxDrawdown, 0, 100, 0);
 
+    /**
+     * Held-back floors. Filtering on out-of-sample spends some of its value as
+     * validation — you are selecting with the data that was meant to check the
+     * selection. Offered because it is genuinely useful, and labelled in the UI
+     * so the tradeoff is visible rather than hidden.
+     */
+    const oosWinFloor = clamp(oosMinWinRate, 0, 100, 0);
+    const oosTradesFloor = clamp(oosMinTrades, 0, 10_000, 0);
+    const oosDrawdownCeiling = clamp(oosMaxDrawdown, 0, 100, 0);
+
     const targetSymbols = symbols.slice(0, MAX_SYMBOLS_PER_BATCH);
     const truncated = symbols.length - targetSymbols.length;
     const batchResults: BatchOptimizerResult[] = [];
@@ -120,7 +131,7 @@ export async function POST(request: Request) {
       const chunk = targetSymbols.slice(i, i + CHUNK_SIZE);
       // Filters are part of the key: results are filtered BEFORE caching, so an
       // unfiltered scan must not be served a cached filtered set, or vice versa.
-      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}:w${winRateFloor}t${tradesFloor}d${drawdownCeiling}`;
+      const dateKey = `${SCAN_CACHE_VERSION}:${new Date().toISOString().split('T')[0]}:w${winRateFloor}t${tradesFloor}d${drawdownCeiling}:ow${oosWinFloor}ot${oosTradesFloor}od${oosDrawdownCeiling}`;
 
       const chunkPromises = chunk.map(async (symbol) => {
         try {
@@ -154,6 +165,15 @@ export async function POST(request: Request) {
             }
             // maxDrawdown is negative; compare magnitudes.
             if (drawdownCeiling > 0 && Math.abs(inSample.maxDrawdown) > drawdownCeiling) {
+              continue;
+            }
+
+            if (outOfSample.totalTrades < oosTradesFloor) continue;
+            if (oosWinFloor > 0) {
+              // No held-back trades means no win rate to clear.
+              if (outOfSample.totalTrades === 0 || outOfSample.winRate < oosWinFloor) continue;
+            }
+            if (oosDrawdownCeiling > 0 && Math.abs(outOfSample.maxDrawdown) > oosDrawdownCeiling) {
               continue;
             }
 
@@ -231,7 +251,10 @@ export async function POST(request: Request) {
       returnedPerSymbol: MAX_RESULTS_PER_SYMBOL,
       // Echo the filters back so the UI can state what was applied rather than
       // presenting a filtered list as the full picture.
-      filters: { minWinRate: winRateFloor, minTrades: tradesFloor, maxDrawdown: drawdownCeiling },
+      filters: {
+        minWinRate: winRateFloor, minTrades: tradesFloor, maxDrawdown: drawdownCeiling,
+        oosMinWinRate: oosWinFloor, oosMinTrades: oosTradesFloor, oosMaxDrawdown: oosDrawdownCeiling,
+      },
       // Surfaced rather than silently dropped — a truncated scan should not read
       // as full coverage.
       symbolsSkipped: truncated > 0 ? truncated : 0,

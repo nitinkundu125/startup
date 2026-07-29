@@ -7,6 +7,7 @@ import { Activity, Play, Zap, Settings2, ShieldCheck, Plus, X } from 'lucide-rea
 import type { StrategyParams, SingleStrategyParams } from '@/lib/dynamic-backtester';
 import { MIN_OOS_TRADES } from '@/lib/backtest-constants';
 import { LabTracked } from '@/components/LabTracked';
+import { ScanFilters, EMPTY_FILTERS, type FilterValues } from '@/components/ScanFilters';
 import { NIFTY_500_SYMBOLS, NIFTY_50_SYMBOLS, NIFTY_100_SYMBOLS, NIFTY_MIDCAP_150_SYMBOLS, NIFTY_SMALLCAP_250_SYMBOLS } from '@/lib/nifty500';
 
 type WatchlistItem = {
@@ -141,11 +142,8 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
   const [matchedTotal, setMatchedTotal] = useState(0);
   /** Rows actually rendered. The table is not virtualised, so this is a hard guard. */
   const [rowLimit, setRowLimit] = useState(200);
-  /** Result floors. 0 = show everything, which is the default. */
-  const [minWinRate, setMinWinRate] = useState(0);
-  const [minTrades, setMinTrades] = useState(0);
-  /** Drawdown tolerance as a positive percent. 0 = no filter. */
-  const [maxDrawdown, setMaxDrawdown] = useState(0);
+  /** Six result floors, fitted and held-back. 0 disables each. */
+  const [filters, setFilters] = useState<FilterValues>(EMPTY_FILTERS);
   /**
    * Row the user is recording a buy against. Prefilled from the scan row so the
    * symbol, strategy and price are not retyped — retyping is where a position
@@ -356,7 +354,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
       const res = await fetch('/api/backtest/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, minWinRate, minTrades, maxDrawdown })
+        body: JSON.stringify({ symbol, ...filters })
       });
       const data = await res.json();
       if (data.success) {
@@ -443,7 +441,7 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
           const res = await fetch('/api/backtest/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbols: chunk, minWinRate, minTrades, maxDrawdown })
+            body: JSON.stringify({ symbols: chunk, ...filters })
           });
           
           const data = await res.json();
@@ -740,73 +738,10 @@ export function BacktestLabClient({ initialWatchlist }: { initialWatchlist: Watc
                 </div>
               </div>
 
-              {/* Result floors. Both default to 0 so nothing is hidden unless
-                  you ask for it — these used to be hardcoded at 67% / 8 trades
-                  and applied invisibly, and only in the batch scanner. */}
-              <div className="w-full md:w-1/3 ml-auto flex flex-col gap-3 justify-end">
-                <div className="flex gap-3">
-                  <div className="flex-1">
-                    <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">
-                      Min win rate %
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={minWinRate}
-                      onChange={(e) => setMinWinRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">
-                      Min trades
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={minTrades}
-                      onChange={(e) => setMinTrades(Math.max(0, Number(e.target.value) || 0))}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label
-                      className="text-xs font-semibold text-slate-500 uppercase mb-1 block"
-                      title="Enter a positive number: 20 keeps only strategies whose worst trade never went below -20%"
-                    >
-                      Max DD %
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={maxDrawdown}
-                      onChange={(e) => setMaxDrawdown(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-slate-400 -mt-1">
-                  {minWinRate === 0 && minTrades === 0 && maxDrawdown === 0 ? (
-                    'No filter — every strategy that traded is returned.'
-                  ) : (
-                    <>
-                      Keeping strategies with{' '}
-                      {minWinRate > 0 && <>≥{minWinRate}% win rate</>}
-                      {minWinRate > 0 && (minTrades > 0 || maxDrawdown > 0) && ', '}
-                      {minTrades > 0 && <>≥{minTrades} trades</>}
-                      {minTrades > 0 && maxDrawdown > 0 && ', '}
-                      {/* Entered positive, applied against a negative figure. */}
-                      {maxDrawdown > 0 && <>worst trade no deeper than −{maxDrawdown}%</>}
-                      . Measured on the fitted window.
-                    </>
-                  )}
-                </p>
+              <div className="w-full md:w-2/3 ml-auto">
+                <ScanFilters values={filters} onChange={setFilters} disabled={batchLoading} />
               </div>
+
             </div>
           </div>
           

@@ -42,6 +42,7 @@ model User {
    */
   telegramChatId    String?
   labPositions      LabPosition[]
+  scanFilters       ScanFilter[]
   /** JSON: Zerodha holdings export for qty reconciliation */
   holdingsSnapshot  String?
   /** JSON: { fetchedAt, prices: { SYMBOL: ltp }, failed?: string[] } from NSE/Yahoo */
@@ -243,6 +244,39 @@ model IndexSyncLog {
   removed   Int      @default(0)
   ok        Boolean  @default(true)
   error     String?
+}
+
+/**
+ * A named set of scan filters.
+ *
+ * Six numbers retyped before every scan is friction that makes people scan with
+ * whatever was left over from last time. Saved, named and editable instead.
+ *
+ * Fitted and out-of-sample floors are stored separately because they answer
+ * different questions: fitted is what the strategy scored where it was chosen,
+ * out-of-sample is what it did on data it never saw.
+ */
+model ScanFilter {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+
+  /** Fitted (selection) window. 0 disables each one. */
+  minWinRate  Float @default(0)
+  minTrades   Int   @default(0)
+  maxDrawdown Float @default(0)
+
+  /** Held-back window. 0 disables each one. */
+  oosMinWinRate  Float @default(0)
+  oosMinTrades   Int   @default(0)
+  oosMaxDrawdown Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model ScanCache {

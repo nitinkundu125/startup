@@ -43,6 +43,10 @@ export type OptimizerFilters = {
   minTrades?: number;
   /** Drawdown tolerance as a POSITIVE percent (20 = nothing worse than -20%). 0 = no filter. */
   maxDrawdown?: number;
+  /** Held-back floors. See the note in the batch route on what filtering here costs. */
+  oosMinWinRate?: number;
+  oosMinTrades?: number;
+  oosMaxDrawdown?: number;
 };
 
 export async function runOptimizer(
@@ -58,6 +62,9 @@ export async function runOptimizer(
   const winRateFloor = clamp(filters.minWinRate, 0, 100);
   const tradesFloor = clamp(filters.minTrades, 0, 10_000);
   const drawdownCeiling = clamp(filters.maxDrawdown, 0, 100);
+  const oosWinFloor = clamp(filters.oosMinWinRate, 0, 100);
+  const oosTradesFloor = clamp(filters.oosMinTrades, 0, 10_000);
+  const oosDrawdownCeiling = clamp(filters.oosMaxDrawdown, 0, 100);
 
   const period1 = backtestStartDate();
 
@@ -100,6 +107,12 @@ export async function runOptimizer(
     }
     // maxDrawdown is negative; compare magnitudes.
     if (drawdownCeiling > 0 && Math.abs(split.inSample.maxDrawdown) > drawdownCeiling) continue;
+
+    if (split.outOfSample.totalTrades < oosTradesFloor) continue;
+    if (oosWinFloor > 0) {
+      if (split.outOfSample.totalTrades === 0 || split.outOfSample.winRate < oosWinFloor) continue;
+    }
+    if (oosDrawdownCeiling > 0 && Math.abs(split.outOfSample.maxDrawdown) > oosDrawdownCeiling) continue;
 
     if (split.full.totalTrades > 0) strategiesPassed++;
     if (
