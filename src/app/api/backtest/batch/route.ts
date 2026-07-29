@@ -4,6 +4,10 @@ import { fetchYahooDailyCloses, toPriceSeries } from '@/lib/index-history';
 import { runSplitBacktest, StrategyParams } from '@/lib/dynamic-backtester';
 import { MASTER_STRATEGY_LIBRARY } from '@/lib/strategy-library';
 import { prisma } from '@/lib/prisma';
+import type { ScanRow } from '@/lib/scan-result';
+
+/** Kept as an alias: existing imports elsewhere still name it this. */
+export type BatchOptimizerResult = ScanRow;
 
 /**
  * Bumped when the shape or meaning of a cached result changes, so stale entries
@@ -11,39 +15,6 @@ import { prisma } from '@/lib/prisma';
  */
 const SCAN_CACHE_VERSION = 'v2';
 
-export type BatchOptimizerResult = {
-  symbol: string;
-  strategyName: string;
-  /** In-sample (selection window) figures. */
-  totalTrades: number;
-  profitableTrades: number;
-  winRate: number;
-  averageReturn: number;
-  /** Worst single-trade drawdown, %. Deepest a position went underwater. */
-  maxDrawdown: number;
-  /** Worst peak-to-trough of the compounded equity curve, %. */
-  equityMaxDrawdown: number;
-  totalReturn: number;
-  /** Held-back window — judge the strategy on these, not the ones above. */
-  oosTotalTrades: number;
-  oosWinRate: number;
-  oosAverageReturn: number;
-  oosTotalReturn: number;
-  /** Same two definitions as above, so fitted and OOS are directly comparable.
-   *  Previously only the equity figure was exposed for OOS while the fitted
-   *  column was worst-trade — two different metrics sitting side by side. */
-  oosMaxDrawdown: number;
-  oosEquityMaxDrawdown: number;
-  /** True when the strategy stayed profitable on data it was not selected on. */
-  heldUp: boolean;
-  splitDate: string | null;
-  strategy: StrategyParams;
-  currentSignal?: 'NEW_BUY' | 'NEW_SELL' | 'HOLDING' | 'WAITING';
-  /** Strategies that traded on this symbol before the per-symbol cap. First row only. */
-  matchedTotal?: number;
-  /** Most recent close, used to prefill the buy form. Not a live quote. */
-  lastClose?: number;
-};
 
 import {
   backtestStartDate,

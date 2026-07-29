@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { OptimizerResult } from './optimizer';
+import type { ScanRow } from './scan-result';
 
 /**
  * Lab state.
@@ -22,9 +22,9 @@ interface BacktestState {
   setSelectedIndex: (idx: string) => void;
 
   /** Results stream in per chunk, so they append rather than replace. */
-  results: OptimizerResult[] | null;
-  setResults: (results: OptimizerResult[] | null) => void;
-  appendResults: (results: OptimizerResult[]) => void;
+  results: ScanRow[] | null;
+  setResults: (results: ScanRow[] | null) => void;
+  appendResults: (results: ScanRow[]) => void;
 }
 
 export const useBacktestStore = create<BacktestState>((set) => ({
