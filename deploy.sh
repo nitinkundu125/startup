@@ -14,7 +14,15 @@ ssh $SERVER "mkdir -p $DEST_DIR"
 
 # Rsync the application files over to the server
 echo "[2/4] Syncing files via rsync..."
-rsync -avz --exclude 'node_modules' --exclude '.next' --exclude '.git' --exclude 'dev.db' -e ssh ./ $SERVER:$DEST_DIR/
+# --delete: without it, a file deleted locally lives on forever on the server and
+# still gets compiled. A build failed on prod for exactly this reason — a route
+# deleted here kept importing a constant that no longer existed.
+# Excluded paths are protected from deletion by rsync, so the live database,
+# node_modules and .next survive. *.bak-* keeps hand-made database backups.
+rsync -avz --delete \
+  --exclude 'node_modules' --exclude '.next' --exclude '.git' \
+  --exclude 'dev.db' --exclude '*.bak-*' \
+  -e ssh ./ $SERVER:$DEST_DIR/
 
 # Execute remote setup commands
 echo "[3/4] Installing dependencies and building on remote server..."
@@ -81,7 +89,16 @@ ssh $SERVER << 'EOF'
   echo "algo-engine is online."
 EOF
 
+# The remote block's exit code. Without this the script announced success even
+# when the remote build had just failed and said so on the line above.
+REMOTE_STATUS=$?
+
 echo "==========================================="
+if [ $REMOTE_STATUS -ne 0 ]; then
+  echo "❌ Deployment FAILED (remote exit $REMOTE_STATUS). The previous version is still running."
+  echo "Logs: ssh $SERVER 'pm2 logs algo-engine'"
+  exit $REMOTE_STATUS
+fi
 echo "✅ Deployment Complete! The Algo Engine is now running on 172.16.245.84."
 echo "You can view the logs on the server using: ssh $SERVER 'pm2 logs algo-engine'"
 echo "==========================================="
