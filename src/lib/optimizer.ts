@@ -41,6 +41,8 @@ export type OptimizerFilters = {
   minWinRate?: number;
   /** Minimum fitted-window trades. 0 = no filter. */
   minTrades?: number;
+  /** Drawdown tolerance as a POSITIVE percent (20 = nothing worse than -20%). 0 = no filter. */
+  maxDrawdown?: number;
 };
 
 export async function runOptimizer(
@@ -55,6 +57,7 @@ export async function runOptimizer(
   };
   const winRateFloor = clamp(filters.minWinRate, 0, 100);
   const tradesFloor = clamp(filters.minTrades, 0, 10_000);
+  const drawdownCeiling = clamp(filters.maxDrawdown, 0, 100);
 
   const period1 = backtestStartDate();
 
@@ -95,6 +98,8 @@ export async function runOptimizer(
       if (split.inSample.totalTrades === 0) continue;
       if (split.inSample.winRate < winRateFloor) continue;
     }
+    // maxDrawdown is negative; compare magnitudes.
+    if (drawdownCeiling > 0 && Math.abs(split.inSample.maxDrawdown) > drawdownCeiling) continue;
 
     if (split.full.totalTrades > 0) strategiesPassed++;
     if (
